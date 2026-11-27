@@ -29,7 +29,11 @@ type Rules struct {
 // Decision is the outcome for one connection.
 type Decision struct {
 	Allowed bool
-	Reason  string // why it was denied; empty when allowed
+	// ByDomain is set when the host name, and not the address, is what allow_out
+	// permitted. The enforcement point then has to connect to an address it
+	// resolved for that name itself: the address the client chose proves nothing.
+	ByDomain bool
+	Reason   string // why it was denied; empty when allowed
 }
 
 // ParseRules validates allow_out and deny_out. It refuses whatever the firewall
@@ -133,7 +137,7 @@ func (r *Rules) Decide(platform *Policy, ip netip.Addr, host string) Decision {
 		host = strings.ToLower(strings.TrimSuffix(host, "."))
 		for _, pattern := range r.allowDomains {
 			if matchDomain(host, pattern) {
-				return Decision{Allowed: true}
+				return Decision{Allowed: true, ByDomain: true}
 			}
 		}
 	}
