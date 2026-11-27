@@ -218,6 +218,10 @@ type CreateRequest struct {
 	// GPU, when non-empty (M19), requests GPU device passthrough (e.g. "1" or a GPU class).
 	// The container driver maps it to `--gpus`; the sandbox is scheduled onto a GPU cell.
 	GPU string
+	// AllowOut and DenyOut are the sandbox's outbound rules, in the syntax
+	// egress.ParseRules accepts. A driver without a sandbox network ignores them.
+	AllowOut []string
+	DenyOut  []string
 }
 
 // VolumeMount attaches a durable volume to a sandbox at boot (M16). The driver resolves ID

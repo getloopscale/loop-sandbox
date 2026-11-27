@@ -46,6 +46,7 @@ type Driver struct {
 	allowed      map[string]bool // image allow-list (defaultImage always permitted)
 	agentVolume  string          // volume holding lsb-agent; "" when sandboxes run without the agent
 	instance     string          // the deployment this driver belongs to; "" when not set
+	networkDNS   []string        // resolvers of a sandbox; empty when sandboxes have no network
 }
 
 var _ runtime.InstanceScoped = (*Driver)(nil)
@@ -102,6 +103,15 @@ func NewFromEnv(defaultImage string, allowedImages ...string) (*Driver, error) {
 			return nil, fmt.Errorf("%s=%s: %w", AgentBinEnv, bin, err)
 		}
 	}
+	if v := os.Getenv(NetworkEnv); v != "" {
+		var dns []string
+		if v != "on" {
+			dns = strings.Split(v, ",")
+		}
+		if err := d.EnableNetwork(dns...); err != nil {
+			return nil, fmt.Errorf("%s=%s: %w", NetworkEnv, v, err)
+		}
+	}
 	return d, nil
 }
 
@@ -149,26 +159,42 @@ func (d *Driver) Create(ctx context.Context, req runtime.CreateRequest) (*runtim
 	if err := d.ensureImage(ctx, img); err != nil {
 		return nil, err
 	}
+	guardID := ""
+	if d.networked(req) {
+		id, err := d.startGuard(ctx, req, d.defaultImage)
+		if err != nil {
+			return nil, err
+		}
+		guardID = id
+	}
+	// Cleanup with a cancel-immune context so teardown survives a cancelled create.
+	dropGuard := func() {
+		if guardID != "" {
+			_ = d.removeGuard(context.WithoutCancel(ctx), req.SandboxID)
+		}
+	}
 	cfg, host := hardenedConfig(Spec{
-		SandboxID:       string(req.SandboxID),
-		TenantID:        req.TenantID,
-		Image:           img,
-		Runtime:         req.OCIRuntime,
-		AppArmorProfile: d.apparmor,
-		CPUNanos:        req.CPUNanos,
-		MemoryBytes:     req.MemoryBytes,
-		PidsLimit:       req.PidsLimit,
-		GPU:             req.GPU,
-		AgentVolume:     d.agentVolume,
-		Instance:        d.instance,
+		NetworkContainer: guardID,
+		SandboxID:        string(req.SandboxID),
+		TenantID:         req.TenantID,
+		Image:            img,
+		Runtime:          req.OCIRuntime,
+		AppArmorProfile:  d.apparmor,
+		CPUNanos:         req.CPUNanos,
+		MemoryBytes:      req.MemoryBytes,
+		PidsLimit:        req.PidsLimit,
+		GPU:              req.GPU,
+		AgentVolume:      d.agentVolume,
+		Instance:         d.instance,
 	})
 	created, err := d.cli.ContainerCreate(ctx, cfg, host, nil, nil, containerName(req.SandboxID))
 	if err != nil {
+		dropGuard()
 		return nil, fmt.Errorf("container create: %w", err)
 	}
 	if err := d.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
-		// Cleanup with a cancel-immune context so teardown survives a cancelled create.
 		_ = d.cli.ContainerRemove(context.WithoutCancel(ctx), created.ID, container.RemoveOptions{Force: true})
+		dropGuard()
 		return nil, fmt.Errorf("container start: %w", err)
 	}
 	return &runtime.Sandbox{ID: req.SandboxID, State: runtime.StateRunning}, nil
@@ -196,11 +222,12 @@ func (d *Driver) Inspect(ctx context.Context, id runtime.SandboxID) (*runtime.Sa
 // Destroy stops and removes the container. It is idempotent: an unknown container
 // is not an error (desired end state reached).
 func (d *Driver) Destroy(ctx context.Context, id runtime.SandboxID) error {
+	// The sandbox goes first: the guard is what keeps its network closed.
 	err := d.cli.ContainerRemove(ctx, containerName(id), container.RemoveOptions{Force: true})
-	if err == nil || errdefs.IsNotFound(err) {
-		return nil
+	if err != nil && !errdefs.IsNotFound(err) {
+		return fmt.Errorf("container remove: %w", err)
 	}
-	return fmt.Errorf("container remove: %w", err)
+	return d.removeGuard(ctx, id)
 }
 
 // ListOrphans returns managed sandbox containers still present on the node — used
@@ -217,16 +244,33 @@ func (d *Driver) ListOrphans(ctx context.Context) ([]runtime.Sandbox, error) {
 	if err != nil {
 		return nil, fmt.Errorf("container list: %w", err)
 	}
+	return orphansFrom(list), nil
+}
+
+// orphansFrom turns the managed containers into one entry per sandbox. A sandbox
+// with a network has two containers; its state is the sandbox container's. A
+// guard whose sandbox container is gone is reported as destroyed, so the
+// reconciler removes it.
+func orphansFrom(list []container.Summary) []runtime.Sandbox {
 	out := make([]runtime.Sandbox, 0, len(list))
+	index := map[runtime.SandboxID]int{}
 	for _, c := range list {
 		id := runtime.SandboxID(c.Labels[LabelSandboxID])
+		guard := c.Labels[LabelRole] == roleNetguard
 		state := runtime.StateRunning
-		if c.State != "running" {
+		if guard || c.State != "running" {
 			state = runtime.StateDestroyed
 		}
+		if i, seen := index[id]; seen {
+			if !guard {
+				out[i].State = state
+			}
+			continue
+		}
+		index[id] = len(out)
 		out = append(out, runtime.Sandbox{ID: id, TenantID: c.Labels[LabelTenantID], State: state})
 	}
-	return out, nil
+	return out
 }
 
 // ensureImage pulls the image if it is not already present locally.
