@@ -221,3 +221,68 @@ func dockerBridgeGateway(t *testing.T, d *Driver) string {
 	t.Fatal("the bridge network has no gateway")
 	return ""
 }
+
+func TestUpdateNetworkAppliesToTheNextConnection(t *testing.T) {
+	d, id := networkedSandbox(t, nil, nil)
+	ctx := context.Background()
+	if exit, out := python(t, d, id, fetch("http://example.com/")); exit != 0 {
+		t.Fatalf("before the update: exit %d\n%s", exit, out)
+	}
+
+	err := d.UpdateNetwork(ctx, id, runtime.NetworkPolicy{AllowOut: []string{"pypi.org"}, DenyOut: []string{"0.0.0.0/0"}})
+	if err != nil {
+		t.Fatalf("UpdateNetwork: %v", err)
+	}
+
+	if exit, out := python(t, d, id, fetch("http://example.com/")); exit == 0 {
+		t.Errorf("a host outside the new allow_out answered:\n%s", out)
+	}
+	if exit, out := python(t, d, id, fetch("https://pypi.org/simple/pip/")); exit != 0 {
+		t.Errorf("the host in the new allow_out: exit %d\n%s", exit, out)
+	}
+
+	denials, err := d.NetworkDenials(ctx, id, 10)
+	if err != nil {
+		t.Fatalf("NetworkDenials: %v", err)
+	}
+	if len(denials) != 1 || denials[0].Host != "example.com" || denials[0].Time.IsZero() || denials[0].Reason == "" {
+		t.Errorf("denials = %+v, want one for example.com with a time and a reason", denials)
+	}
+
+	// Opening it again works too.
+	if err := d.UpdateNetwork(ctx, id, runtime.NetworkPolicy{}); err != nil {
+		t.Fatalf("UpdateNetwork to no rules: %v", err)
+	}
+	if exit, out := python(t, d, id, fetch("http://example.com/")); exit != 0 {
+		t.Errorf("after the rules were removed: exit %d\n%s", exit, out)
+	}
+}
+
+func TestUpdateNetworkRefusesInvalidRulesAndKeepsTheOldOnes(t *testing.T) {
+	d, id := networkedSandbox(t, nil, []string{"0.0.0.0/0"})
+	ctx := context.Background()
+
+	err := d.UpdateNetwork(ctx, id, runtime.NetworkPolicy{DenyOut: []string{"example.com"}})
+	if !errors.Is(err, runtime.ErrInvalidRequest) {
+		t.Fatalf("UpdateNetwork = %v, want ErrInvalidRequest", err)
+	}
+	if exit, out := python(t, d, id, fetch("http://example.com/")); exit == 0 {
+		t.Errorf("the deny-all in force was lost:\n%s", out)
+	}
+}
+
+func TestNetworkOperationsOnASandboxWithoutOne(t *testing.T) {
+	d := newAgentDriver(t)
+	id := agentSandbox(t, d, "")
+	ctx := context.Background()
+
+	if err := d.UpdateNetwork(ctx, id, runtime.NetworkPolicy{}); !errors.Is(err, runtime.ErrNoNetwork) {
+		t.Errorf("UpdateNetwork = %v, want ErrNoNetwork", err)
+	}
+	if _, err := d.NetworkDenials(ctx, id, 10); !errors.Is(err, runtime.ErrNoNetwork) {
+		t.Errorf("NetworkDenials = %v, want ErrNoNetwork", err)
+	}
+	if err := d.UpdateNetwork(ctx, "sbx_does_not_exist", runtime.NetworkPolicy{}); !errors.Is(err, runtime.ErrSandboxNotFound) {
+		t.Errorf("UpdateNetwork on a missing sandbox = %v, want ErrSandboxNotFound", err)
+	}
+}

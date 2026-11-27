@@ -127,3 +127,24 @@ func TestOrphansListASandboxOnceAndReportALoneGuardAsDestroyed(t *testing.T) {
 		}
 	}
 }
+
+func TestParseDenialsKeepsTheLastOnesAndSkipsOtherLines(t *testing.T) {
+	logs := `netguard: ready
+{"event":"egress_denied","time":"2026-11-27T10:00:00.5Z","destination":"1.1.1.1:443","host":"a.example","reason":"denied by deny_out"}
+not json
+{"event":"something_else"}
+{"event":"egress_denied","time":"2026-11-27T10:00:01Z","destination":"10.0.0.1:80","reason":"private address"}
+{"event":"egress_denied","time":"2026-11-27T10:00:02Z","destination":"2.2.2.2:22","reason":"denied by deny_out"}
+`
+	got := parseDenials(logs, 2)
+
+	if len(got) != 2 || got[0].Destination != "10.0.0.1:80" || got[1].Destination != "2.2.2.2:22" {
+		t.Fatalf("got %+v, want the last two, oldest first", got)
+	}
+	if got[0].Time.IsZero() || got[0].Host != "" || got[0].Reason != "private address" {
+		t.Errorf("first = %+v", got[0])
+	}
+	if all := parseDenials(logs, 0); len(all) != 3 || all[0].Host != "a.example" {
+		t.Errorf("no limit: got %+v, want all three", all)
+	}
+}

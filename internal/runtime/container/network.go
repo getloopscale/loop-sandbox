@@ -1,8 +1,10 @@
 package container
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -119,6 +121,10 @@ func guardConfig(spec guardSpec) (*dcontainer.Config, *dcontainer.HostConfig) {
 		CapDrop:        strslice.StrSlice{"ALL"},
 		CapAdd:         strslice.StrSlice{"NET_ADMIN"},
 		Mounts:         []mount.Mount{{Type: mount.TypeVolume, Source: spec.AgentVolume, Target: agentDir, ReadOnly: true}},
+		// The control socket. Only root in the guard can enter the directory.
+		Tmpfs: map[string]string{agentRunDir: "rw,noexec,nosuid,nodev,size=1m,mode=0700"},
+		// Denials are read back from the log, so it is bounded.
+		LogConfig: dcontainer.LogConfig{Type: "json-file", Config: map[string]string{"max-size": "5m", "max-file": "2"}},
 		Resources: dcontainer.Resources{
 			NanoCPUs:  500_000_000,
 			Memory:    64 << 20,
@@ -210,4 +216,108 @@ func (d *Driver) removeGuard(ctx context.Context, id runtime.SandboxID) error {
 		return nil
 	}
 	return fmt.Errorf("network guard remove: %w", err)
+}
+
+// CapabilityEnabled for the network lives here: the driver has the methods, and
+// they work only when sandboxes get a guard.
+func (d *Driver) networkEnabled() bool { return len(d.networkDNS) > 0 }
+
+var _ runtime.NetworkDriver = (*Driver)(nil)
+
+// guardRulesRefused is the exit status of "lsb-agent netguard-rules" when the
+// guard refused the rules.
+const guardRulesRefused = 3
+
+// UpdateNetwork implements runtime.NetworkDriver by handing the rules to the
+// sandbox's guard.
+func (d *Driver) UpdateNetwork(ctx context.Context, id runtime.SandboxID, policy runtime.NetworkPolicy) error {
+	if _, err := egress.ParseRules(policy.AllowOut, policy.DenyOut); err != nil {
+		return fmt.Errorf("%w: %w", runtime.ErrInvalidRequest, err)
+	}
+	arg, err := json.Marshal(netguard.RulesRequest{AllowOut: policy.AllowOut, DenyOut: policy.DenyOut})
+	if err != nil {
+		return fmt.Errorf("encode network rules: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, agentOpTimeout)
+	defer cancel()
+	exit, output, err := d.guardExec(ctx, id, []string{agentPath, "netguard-rules", string(arg)})
+	if err != nil {
+		return err
+	}
+	switch exit {
+	case 0:
+		return nil
+	case guardRulesRefused:
+		return fmt.Errorf("%w: %s", runtime.ErrInvalidRequest, strings.TrimSpace(output))
+	default:
+		return fmt.Errorf("network guard did not take the rules (exit %d): %s", exit, strings.TrimSpace(output))
+	}
+}
+
+// guardExec runs a command in the guard of a sandbox and returns its exit status
+// and combined output.
+func (d *Driver) guardExec(ctx context.Context, id runtime.SandboxID, cmd []string) (int, string, error) {
+	created, err := d.cli.ContainerExecCreate(ctx, guardName(id), dcontainer.ExecOptions{
+		Cmd: cmd, AttachStdout: true, AttachStderr: true,
+	})
+	if errdefs.IsNotFound(err) {
+		return 0, "", d.missingGuard(ctx, id)
+	}
+	if err != nil {
+		return 0, "", fmt.Errorf("network guard exec: %w", err)
+	}
+	att, err := d.cli.ContainerExecAttach(ctx, created.ID, dcontainer.ExecAttachOptions{})
+	if err != nil {
+		return 0, "", fmt.Errorf("network guard exec attach: %w", err)
+	}
+	defer att.Close()
+	var out bytes.Buffer
+	if _, err := stdcopy.StdCopy(&out, &out, att.Reader); err != nil {
+		return 0, "", fmt.Errorf("network guard exec output: %w", err)
+	}
+	info, err := d.cli.ContainerExecInspect(ctx, created.ID)
+	if err != nil {
+		return 0, "", fmt.Errorf("network guard exec inspect: %w", err)
+	}
+	return info.ExitCode, out.String(), nil
+}
+
+// missingGuard tells a sandbox that does not exist from one that exists without
+// a network.
+func (d *Driver) missingGuard(ctx context.Context, id runtime.SandboxID) error {
+	if _, err := d.cli.ContainerInspect(ctx, containerName(id)); errdefs.IsNotFound(err) {
+		return runtime.ErrSandboxNotFound
+	}
+	return runtime.ErrNoNetwork
+}
+
+// NetworkDenials implements runtime.NetworkDriver by reading the guard's log.
+func (d *Driver) NetworkDenials(ctx context.Context, id runtime.SandboxID, limit int) ([]runtime.NetworkDenial, error) {
+	logs, _, err := d.guardLogs(ctx, guardName(id))
+	if err != nil {
+		if errdefs.IsNotFound(errors.Unwrap(err)) {
+			return nil, d.missingGuard(ctx, id)
+		}
+		return nil, err
+	}
+	return parseDenials(logs, limit), nil
+}
+
+// parseDenials picks the denial records out of a guard log and returns the last
+// limit of them, oldest first. Lines that are not denial records are skipped.
+func parseDenials(logs string, limit int) []runtime.NetworkDenial {
+	var out []runtime.NetworkDenial
+	sc := bufio.NewScanner(strings.NewReader(logs))
+	for sc.Scan() {
+		var rec netguard.DenialRecord
+		if json.Unmarshal(sc.Bytes(), &rec) != nil || rec.Event != netguard.DenialEvent {
+			continue
+		}
+		at, _ := time.Parse(time.RFC3339Nano, rec.Time)
+		out = append(out, runtime.NetworkDenial{Time: at, Destination: rec.Destination, Host: rec.Host, Reason: rec.Reason})
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out
 }
