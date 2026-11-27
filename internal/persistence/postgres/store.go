@@ -23,7 +23,7 @@ func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // sandboxColumns is the column list every sandbox read selects, in scanSandbox order.
 const sandboxColumns = `id, tenant_id, cell_id, image, gpu, state, created_at, updated_at, expires_at, metadata, env,
-	auto_pause_seconds, last_active_at, auto_paused, secrets`
+	auto_pause_seconds, last_active_at, auto_paused, secrets, network_allow_out, network_deny_out`
 
 // rowScanner is the part of pgx.Row and pgx.Rows that scanSandbox needs.
 type rowScanner interface {
@@ -39,7 +39,7 @@ func scanSandbox(row rowScanner) (*domain.Sandbox, error) {
 	)
 	if err := row.Scan(&sb.ID, &sb.TenantID, &sb.CellID, &sb.Image, &sb.GPU, &state,
 		&sb.CreatedAt, &sb.UpdatedAt, &sb.ExpiresAt, &sb.Metadata, &sb.Env,
-		&autoPause, &lastActiveAt, &sb.AutoPaused, &sb.Secrets); err != nil {
+		&autoPause, &lastActiveAt, &sb.AutoPaused, &sb.Secrets, &sb.NetworkAllowOut, &sb.NetworkDenyOut); err != nil {
 		return nil, err
 	}
 	sb.State = domain.State(state)
@@ -56,6 +56,12 @@ func scanSandbox(row rowScanner) (*domain.Sandbox, error) {
 	}
 	if len(sb.Secrets) == 0 {
 		sb.Secrets = nil
+	}
+	if len(sb.NetworkAllowOut) == 0 {
+		sb.NetworkAllowOut = nil
+	}
+	if len(sb.NetworkDenyOut) == 0 {
+		sb.NetworkDenyOut = nil
 	}
 	return &sb, nil
 }
@@ -76,6 +82,20 @@ func jsonArray(v []string) []string {
 	return v
 }
 
+// SetSandboxNetwork implements domain.NetworkStore.
+func (s *Store) SetSandboxNetwork(ctx context.Context, tenantID, id string, allowOut, denyOut []string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE sandboxes SET network_allow_out = $3, network_deny_out = $4 WHERE tenant_id = $1 AND id = $2`,
+		tenantID, id, jsonArray(allowOut), jsonArray(denyOut))
+	if err != nil {
+		return fmt.Errorf("set sandbox network: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 // Save upserts a sandbox. Metadata, env and the idle limit are written on insert
 // only: they are immutable after creation, and a state-transition save must not
 // rewrite them. The last activity only moves forward, so a save made from a copy
@@ -90,8 +110,8 @@ func (s *Store) Save(ctx context.Context, sb *domain.Sandbox) error {
 	// once at creation, so state-transition upserts match the same key.
 	const q = `
 		INSERT INTO sandboxes (id, tenant_id, cell_id, image, gpu, state, created_at, updated_at, expires_at, metadata, env,
-			auto_pause_seconds, last_active_at, auto_paused, secrets)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+			auto_pause_seconds, last_active_at, auto_paused, secrets, network_allow_out, network_deny_out)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		ON CONFLICT (cell_id, tenant_id, id) DO UPDATE
 		SET state = EXCLUDED.state, updated_at = EXCLUDED.updated_at, expires_at = EXCLUDED.expires_at,
 			auto_paused = EXCLUDED.auto_paused,
@@ -102,7 +122,8 @@ func (s *Store) Save(ctx context.Context, sb *domain.Sandbox) error {
 	}
 	_, err := s.pool.Exec(ctx, q, sb.ID, sb.TenantID, cell, sb.Image, sb.GPU, string(sb.State),
 		sb.CreatedAt, sb.UpdatedAt, sb.ExpiresAt, jsonObject(sb.Metadata), jsonObject(sb.Env),
-		int64(sb.AutoPauseAfter/time.Second), lastActiveAt, sb.AutoPaused, jsonArray(sb.Secrets))
+		int64(sb.AutoPauseAfter/time.Second), lastActiveAt, sb.AutoPaused, jsonArray(sb.Secrets),
+		jsonArray(sb.NetworkAllowOut), jsonArray(sb.NetworkDenyOut))
 	if err != nil {
 		return fmt.Errorf("save sandbox: %w", err)
 	}

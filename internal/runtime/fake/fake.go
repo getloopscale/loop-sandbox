@@ -31,6 +31,7 @@ type Driver struct {
 	paused  map[runtime.SandboxID]bool // M16 pause/resume
 	// snapshots holds the files of each named snapshot, keyed by snapshot id.
 	snapshots map[string]map[string][]byte
+	net       network
 }
 
 // New returns an empty fake driver. Sessions (which run code on the HOST) are DISABLED —
@@ -73,6 +74,9 @@ func (d *Driver) Create(_ context.Context, req runtime.CreateRequest) (*runtime.
 	}
 	d.sandboxes[req.SandboxID] = runtime.StateRunning
 	d.files[req.SandboxID] = make(map[string][]byte)
+	if d.net.enabled {
+		d.setPolicy(req.SandboxID, runtime.NetworkPolicy{AllowOut: req.AllowOut, DenyOut: req.DenyOut})
+	}
 	return &runtime.Sandbox{ID: req.SandboxID, State: runtime.StateRunning}, nil
 }
 

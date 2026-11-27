@@ -27,6 +27,7 @@ const usageText = `lsb is the LoopSandbox CLI.
 
 Usage:
   lsb sandbox create [--image IMAGE | --template ID] [--ttl 10m] [--env K=V] [--label K=V]
+                     [--allow-out HOST] [--deny-out CIDR]
   lsb sandbox list [--state STATE] [--json]
   lsb sandbox exec [--timeout 30s] SANDBOX -- COMMAND [ARG...]
   lsb sandbox connect SANDBOX
@@ -137,6 +138,19 @@ func (p pairs) Set(v string) error {
 	return nil
 }
 
+// list collects a repeated flag.
+type list []string
+
+func (l *list) String() string { return strings.Join(*l, ",") }
+
+func (l *list) Set(v string) error {
+	if v == "" {
+		return errors.New("must not be empty")
+	}
+	*l = append(*l, v)
+	return nil
+}
+
 func (c *cli) create(ctx context.Context, api *client, args []string) error {
 	fs := c.flags("sandbox create")
 	image := fs.String("image", "", "image to run")
@@ -145,6 +159,9 @@ func (c *cli) create(ctx context.Context, api *client, args []string) error {
 	env, labels := pairs{}, pairs{}
 	fs.Var(env, "env", "KEY=VALUE set for every command; repeatable")
 	fs.Var(labels, "label", "KEY=VALUE label; repeatable")
+	var allowOut, denyOut list
+	fs.Var(&allowOut, "allow-out", "address, CIDR range or host name the sandbox may reach; repeatable")
+	fs.Var(&denyOut, "deny-out", "address or CIDR range the sandbox may not reach, such as 0.0.0.0/0; repeatable")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -157,9 +174,13 @@ func (c *cli) create(ctx context.Context, api *client, args []string) error {
 	if *ttl < 0 {
 		return usagef("--ttl must not be negative")
 	}
-	sb, err := api.createSandbox(ctx, createRequest{
+	req := createRequest{
 		Image: *image, Template: *template, TTLSeconds: int64(ttl.Seconds()), Metadata: labels, Env: env,
-	})
+	}
+	if len(allowOut) > 0 || len(denyOut) > 0 {
+		req.Network = &networkRules{AllowOut: append([]string{}, allowOut...), DenyOut: append([]string{}, denyOut...)}
+	}
+	sb, err := api.createSandbox(ctx, req)
 	if err != nil {
 		return err
 	}

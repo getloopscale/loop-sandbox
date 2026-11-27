@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/getloopscale/loop-sandbox/internal/domain"
+	"github.com/getloopscale/loop-sandbox/internal/runtime"
 	"github.com/getloopscale/loop-sandbox/internal/tracing"
 )
 
@@ -31,6 +32,9 @@ type SandboxSpec struct {
 	Metadata map[string]string
 	// Env is the default environment of every command run in the sandbox.
 	Env map[string]string
+	// Network, when set, is the sandbox's outbound rules. Nil means the default
+	// policy of the runtime.
+	Network *runtime.NetworkPolicy
 }
 
 // CreateSandboxFromSpec provisions a sandbox as described by spec. Metadata and env
@@ -54,6 +58,15 @@ func (s *Service) CreateSandboxFromSpec(ctx context.Context, actor Actor, spec S
 		return nil, err
 	}
 	attrs := sandboxAttributes{metadata: spec.Metadata, env: spec.Env, autoPause: spec.AutoPause, secrets: spec.Secrets}
+	if spec.Network != nil {
+		if err := s.validateNetwork(*spec.Network); err != nil {
+			return nil, err
+		}
+		if spec.Snapshot != "" || spec.Template != "" {
+			return nil, &domain.ValidationError{Field: "network", Reason: "cannot be combined with snapshot or template"}
+		}
+		attrs.network = *spec.Network
+	}
 	if spec.Snapshot != "" {
 		if spec.Image != "" || spec.Template != "" || spec.GPU != "" {
 			return nil, &domain.ValidationError{Field: "snapshot", Reason: "cannot be combined with image, template or gpu"}
@@ -75,6 +88,8 @@ type sandboxAttributes struct {
 	autoPause time.Duration
 	// secrets are the names of the secrets the sandbox receives.
 	secrets []string
+	// network is the outbound rules; the zero value is the default policy.
+	network runtime.NetworkPolicy
 }
 
 // apply sets on a new sandbox the attributes that are not validated by
@@ -82,6 +97,8 @@ type sandboxAttributes struct {
 func (a sandboxAttributes) apply(sb *domain.Sandbox, now time.Time) {
 	sb.AutoPauseAfter, sb.LastActiveAt = a.autoPause, now
 	sb.Secrets = append([]string(nil), a.secrets...)
+	sb.NetworkAllowOut = append([]string(nil), a.network.AllowOut...)
+	sb.NetworkDenyOut = append([]string(nil), a.network.DenyOut...)
 }
 
 // clampTTL applies the default and the ceiling every sandbox lifetime obeys.

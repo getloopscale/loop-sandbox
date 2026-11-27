@@ -55,13 +55,14 @@ var RoutesWithoutTool = map[string]string{
 	"PUT /v1/signed-files/{token}": "made for a holder without credentials; an MCP caller has write_file",
 	"POST /v1/sandboxes/{id}/file-urls": "the signer belongs to the HTTP surface, which knows the public address of the API; " +
 		"an MCP caller moves files with read_file and write_file",
-	"GET /v1/api-keys":          "credential management is kept off the agent surface: a tool that mints keys would let a model widen its own access",
-	"POST /v1/api-keys":         "credential management is kept off the agent surface: a tool that mints keys would let a model widen its own access",
-	"DELETE /v1/api-keys/{kid}": "credential management is kept off the agent surface: a model could revoke the keys of its operator",
-	"POST /v1/templates":        "registering or publishing an image is an administrative action, done by an operator",
-	"GET /v1/secrets":           "secret management is kept off the agent surface; create_sandbox takes the names of the secrets a sandbox receives",
-	"PUT /v1/secrets/{name}":    "secret management is kept off the agent surface: the value would pass through the context of the model",
-	"DELETE /v1/secrets/{name}": "secret management is kept off the agent surface: a model could delete the secrets of its operator",
+	"GET /v1/api-keys":               "credential management is kept off the agent surface: a tool that mints keys would let a model widen its own access",
+	"POST /v1/api-keys":              "credential management is kept off the agent surface: a tool that mints keys would let a model widen its own access",
+	"DELETE /v1/api-keys/{kid}":      "credential management is kept off the agent surface: a model could revoke the keys of its operator",
+	"PUT /v1/sandboxes/{id}/network": "the outbound rules are set by the operator of the agent: a tool that replaces them would let a model open its own network",
+	"POST /v1/templates":             "registering or publishing an image is an administrative action, done by an operator",
+	"GET /v1/secrets":                "secret management is kept off the agent surface; create_sandbox takes the names of the secrets a sandbox receives",
+	"PUT /v1/secrets/{name}":         "secret management is kept off the agent surface: the value would pass through the context of the model",
+	"DELETE /v1/secrets/{name}":      "secret management is kept off the agent surface: a model could delete the secrets of its operator",
 }
 
 // Coverage returns, for every tool, the REST routes it stands for.
@@ -200,6 +201,28 @@ func dataTools() []tool {
 					out = append(out, sandboxView(sb))
 				}
 				return map[string]any{"sandboxes": out, "has_more": page.Next != nil}, nil
+			},
+		},
+		{
+			spec: mcp.NewTool("list_network_denials", mcp.WithDescription("List the outbound connections the sandbox's network rules refused, oldest first. Use it to find out why a download or a request from the sandbox failed."),
+				sandboxArg, mcp.WithNumber("limit", mcp.Description("at most this many, 1 to 1000; default 100"))),
+			routes: []string{"GET /v1/sandboxes/{id}/network/denials"},
+			run: func(ctx ctxT, svc svcT, actor app.Actor, req reqT) (any, error) {
+				id, err := sandbox(req)
+				if err != nil {
+					return nil, err
+				}
+				denials, err := svc.SandboxNetworkDenials(ctx, actor, id, req.GetInt("limit", 0))
+				if err != nil {
+					return nil, err
+				}
+				out := make([]map[string]any, 0, len(denials))
+				for _, d := range denials {
+					out = append(out, map[string]any{
+						"time": d.Time.UTC().Format(time.RFC3339Nano), "destination": d.Destination, "host": d.Host, "reason": d.Reason,
+					})
+				}
+				return map[string]any{"denials": out}, nil
 			},
 		},
 		{

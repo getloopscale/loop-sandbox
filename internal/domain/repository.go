@@ -33,6 +33,14 @@ type Repository interface {
 	List(ctx context.Context, tenantID string, q SandboxQuery) ([]*Sandbox, error)
 }
 
+// NetworkStore is an optional capability of a Repository: it replaces the
+// outbound rules of a sandbox without touching the rest of the record.
+type NetworkStore interface {
+	// SetSandboxNetwork stores the rules of the tenant's sandbox, or returns
+	// ErrNotFound.
+	SetSandboxNetwork(ctx context.Context, tenantID, id string, allowOut, denyOut []string) error
+}
+
 // ActivityStore is an optional capability of a Repository: it records when a
 // sandbox was last used and finds the ones that went idle.
 type ActivityStore interface {

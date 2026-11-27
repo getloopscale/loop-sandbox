@@ -161,6 +161,68 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+  /v1/sandboxes/{id}/network:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    put:
+      tags: [sandboxes]
+      operationId: updateSandboxNetwork
+      summary: Replace the outbound rules of a running sandbox
+      description: >
+        The body replaces both lists. The new rules apply to the connections
+        the sandbox makes from then on; a connection already open is not cut.
+        Empty lists restore the default policy. A sandbox that is not running
+        answers 409, and so does one that has no network, with the code
+        "no_network". Capability "network".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NetworkPolicy' }
+      responses:
+        '200':
+          description: The rules now in force
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NetworkPolicy' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/network/denials:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    get:
+      tags: [sandboxes]
+      operationId: listNetworkDenials
+      summary: List the connections a sandbox's rules refused
+      description: >
+        Returns the most recent refused outbound connections, oldest first.
+        The record is kept while the sandbox exists and is bounded, so old
+        entries of a sandbox with many refusals are dropped. Capability
+        "network".
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+      responses:
+        '200':
+          description: The refused connections
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [denials]
+                properties:
+                  denials:
+                    type: array
+                    items: { $ref: '#/components/schemas/NetworkDenial' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
   /v1/sandboxes/{id}/fork:
     parameters:
       - $ref: '#/components/parameters/SandboxId'
@@ -1498,6 +1560,38 @@ components:
         different payload answers 409.
       schema: { type: string }
   schemas:
+    NetworkPolicy:
+      type: object
+      description: >
+        The outbound rules of a sandbox. With no rules a sandbox reaches the
+        public internet. An entry of allow_out wins over deny_out, so the usual
+        way to restrict a sandbox is deny_out ["0.0.0.0/0"] plus the hosts it
+        needs in allow_out. Private, loopback, link-local and cloud metadata
+        addresses are refused whatever the rules say. A host name is matched
+        against the Host header on port 80 and the TLS server name on port
+        443; on other ports only addresses and CIDR ranges apply. DNS lookups
+        are not restricted.
+      properties:
+        allow_out:
+          type: array
+          maxItems: 100
+          items: { type: string }
+          description: IPv4 or IPv6 addresses, CIDR ranges, host names, "*.name" for the subdomains of a name, or "*".
+          example: [pypi.org, files.pythonhosted.org]
+        deny_out:
+          type: array
+          maxItems: 100
+          items: { type: string }
+          description: Addresses and CIDR ranges. Host names are not accepted here.
+          example: [0.0.0.0/0]
+    NetworkDenial:
+      type: object
+      required: [time, destination, reason]
+      properties:
+        time: { type: string, format: date-time }
+        destination: { type: string, description: Address and port the sandbox tried to reach., example: '93.184.216.34:443' }
+        host: { type: string, description: The host name the sandbox asked for, when the protocol carried one., example: example.com }
+        reason: { type: string }
     CreateSandboxRequest:
       type: object
       description: template and gpu are mutually exclusive.
@@ -1520,6 +1614,13 @@ components:
             of the sandbox receives them as environment variables of the same
             name. Code sessions and the terminal do not. A name the tenant has
             no secret for answers 400.
+        network:
+          allOf:
+            - $ref: '#/components/schemas/NetworkPolicy'
+          description: >
+            Outbound rules of the sandbox. Capability "network": on a runtime
+            without it the request answers 501. Cannot be combined with
+            snapshot or template.
         auto_pause_seconds:
           type: integer
           minimum: 10
@@ -1601,6 +1702,10 @@ components:
           enum: [pending, running, paused, destroyed]
         created_at: { type: string, format: date-time }
         expires_at: { type: string, format: date-time }
+        network:
+          allOf:
+            - $ref: '#/components/schemas/NetworkPolicy'
+          description: Present when the sandbox has outbound rules.
         auto_pause_seconds:
           type: integer
           description: Present when the sandbox pauses itself after this many idle seconds.
@@ -1752,7 +1857,7 @@ components:
             properties:
               name:
                 type: string
-                enum: [exec, files, file_ops, file_watch, exec_stream, processes, logs, metrics, sessions, session_stream, pty, fork, pause, snapshots, volumes, browser, template_build]
+                enum: [exec, files, file_ops, file_watch, exec_stream, processes, logs, metrics, sessions, session_stream, pty, fork, pause, snapshots, volumes, browser, template_build, network]
               supported: { type: boolean }
     RegisterTemplateRequest:
       type: object

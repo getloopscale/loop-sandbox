@@ -49,6 +49,7 @@ deployment supports, and a route outside that list answers 501. The table is the
 | `metrics` (CPU and memory per sandbox) | yes | yes |
 | `sessions` (code interpreter) | yes, with `LOOPSANDBOX_AGENT_BIN` | yes |
 | `pty` (terminal) | yes, with `LOOPSANDBOX_AGENT_BIN` | yes |
+| `network` (outbound internet with `allow_out` and `deny_out` rules) | yes, with `LOOPSANDBOX_CONTAINER_NETWORK` | no |
 | `fork`, `pause` (also automatic, with `auto_pause_seconds`) | no | yes |
 | `snapshots` (named, memory and disk) | no | yes |
 | `volumes` | no | yes, one per sandbox, mounted at `/workspace/<name>` |
@@ -145,7 +146,7 @@ artifact bucket is configured.
 ### MCP
 
 The API serves an MCP endpoint at `/mcp/sandbox`, authenticated with the same API key. It exposes
-48 tools that cover the REST API: sandboxes, commands, files, background processes, directory
+49 tools that cover the REST API: sandboxes, commands, files, background processes, directory
 watches, logs, metrics, code sessions, fork, pause, snapshots, volumes, templates, capabilities and
 the browser. A tool is listed and callable only when the key has the scope that grants it.
 
@@ -210,6 +211,7 @@ The API and the worker read their configuration from environment variables.
 | `LOOPSANDBOX_URL_SIGNING_KEY` | unset | Secret of at least 32 bytes that signs file URLs. Unset, `POST /v1/sandboxes/{id}/file-urls` answers 501. Every replica needs the same value. |
 | `LOOPSANDBOX_PUBLIC_URL` | unset | Address clients reach the API at, used in signed file URLs. Unset, the URL is built from the request. |
 | `LOOPSANDBOX_AGENT_BIN` | unset; `/lsb-agent` in the published image | Path of a static `lsb-agent` binary. With it, the `container` driver runs the agent as the first process of every sandbox, which enables background processes, directory watches, code sessions and the interactive terminal, and reaps orphaned processes. |
+| `LOOPSANDBOX_CONTAINER_NETWORK` | unset | `on`, or a comma-separated list of IPv4 DNS resolvers (the default is `8.8.8.8`). With it, the `container` driver gives every sandbox a network and a second container that enforces its outbound rules. Needs `LOOPSANDBOX_AGENT_BIN`. Unset, a sandbox has no network at all. |
 | `LOOPSANDBOX_FC_BIN`, `LOOPSANDBOX_FC_KERNEL`, `LOOPSANDBOX_FC_ROOTFS`, `LOOPSANDBOX_FC_STATEDIR` | none | Firecracker binary, guest kernel, root filesystem and state directory. |
 | `LOOPSANDBOX_FC_WARMPOOL` | `0` | Number of pre-booted microVMs kept ready for snapshot restore. |
 | `LOOPSANDBOX_ARTIFACT_BUCKET` | none | S3 bucket for artifact URLs. Related: `LOOPSANDBOX_ARTIFACT_REGION`, `_ENDPOINT`, `_ACCESS_KEY`, `_SECRET_KEY`. |

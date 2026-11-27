@@ -131,6 +131,13 @@ type createRequest struct {
 	TTLSeconds int64             `json:"ttl_seconds,omitempty"`
 	Metadata   map[string]string `json:"metadata,omitempty"`
 	Env        map[string]string `json:"env,omitempty"`
+	Network    *networkRules     `json:"network,omitempty"`
+}
+
+// networkRules is the outbound rules of a sandbox.
+type networkRules struct {
+	AllowOut []string `json:"allow_out"`
+	DenyOut  []string `json:"deny_out"`
 }
 
 func (c *client) createSandbox(ctx context.Context, req createRequest) (*sandbox, error) {

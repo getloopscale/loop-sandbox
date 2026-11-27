@@ -65,6 +65,8 @@ func Routes() []Route {
 		{Method: http.MethodGet, Path: "/v1/sandboxes", handler: (*Handler).ListSandboxes},
 		{Method: http.MethodGet, Path: "/v1/sandboxes/{id}", handler: (*Handler).GetSandbox},
 		{Method: http.MethodPost, Path: "/v1/sandboxes/{id}/timeout", handler: (*Handler).SetSandboxTimeout},
+		{Method: http.MethodPut, Path: "/v1/sandboxes/{id}/network", handler: (*Handler).UpdateSandboxNetwork},
+		{Method: http.MethodGet, Path: "/v1/sandboxes/{id}/network/denials", handler: (*Handler).ListNetworkDenials},
 		{Method: http.MethodDelete, Path: "/v1/sandboxes/{id}", handler: (*Handler).DeleteSandbox},
 		{Method: http.MethodPost, Path: "/v1/sandboxes/{id}/executions", handler: (*Handler).CreateExecution},
 		{Method: http.MethodGet, Path: "/v1/sandboxes/{id}/files", handler: (*Handler).ListFiles},
