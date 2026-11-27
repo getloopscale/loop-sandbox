@@ -44,7 +44,7 @@ func newProxyRig(t *testing.T, rules *Rules, original string, lookup map[string]
 				return
 			}
 			go func() {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				_, _ = c.Write([]byte("upstream-hello\n"))
 				buf := make([]byte, 4096)
 				for {

@@ -69,7 +69,7 @@ func (p *Proxy) Serve(l net.Listener) error {
 }
 
 func (p *Proxy) handle(client net.Conn) {
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	dst, err := p.OriginalDst(client)
 	if err != nil {
@@ -118,7 +118,7 @@ func (p *Proxy) handle(client net.Conn) {
 		p.deny(Denial{Destination: dst, Host: host, Reason: "connect failed: " + err.Error()})
 		return
 	}
-	defer upstream.Close()
+	defer func() { _ = upstream.Close() }()
 
 	if consumed.Len() > 0 {
 		if _, err := upstream.Write(consumed.Bytes()); err != nil {
