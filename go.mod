@@ -30,7 +30,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0
 	go.opentelemetry.io/proto/otlp v1.10.0
 	golang.org/x/term v0.44.0
-	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
+	google.golang.org/protobuf v1.37.0-rc.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 

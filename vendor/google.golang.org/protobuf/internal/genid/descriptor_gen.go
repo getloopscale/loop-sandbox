@@ -26,6 +26,7 @@ const (
 	Edition_EDITION_PROTO3_enum_value          = 999
 	Edition_EDITION_2023_enum_value            = 1000
 	Edition_EDITION_2024_enum_value            = 1001
+	Edition_EDITION_2026_enum_value            = 1002
 	Edition_EDITION_UNSTABLE_enum_value        = 9999
 	Edition_EDITION_1_TEST_ONLY_enum_value     = 1
 	Edition_EDITION_2_TEST_ONLY_enum_value     = 2
@@ -806,11 +807,13 @@ const (
 	FieldOptions_FeatureSupport_EditionDeprecated_field_name  protoreflect.Name = "edition_deprecated"
 	FieldOptions_FeatureSupport_DeprecationWarning_field_name protoreflect.Name = "deprecation_warning"
 	FieldOptions_FeatureSupport_EditionRemoved_field_name     protoreflect.Name = "edition_removed"
+	FieldOptions_FeatureSupport_RemovalError_field_name       protoreflect.Name = "removal_error"
 
 	FieldOptions_FeatureSupport_EditionIntroduced_field_fullname  protoreflect.FullName = "google.protobuf.FieldOptions.FeatureSupport.edition_introduced"
 	FieldOptions_FeatureSupport_EditionDeprecated_field_fullname  protoreflect.FullName = "google.protobuf.FieldOptions.FeatureSupport.edition_deprecated"
 	FieldOptions_FeatureSupport_DeprecationWarning_field_fullname protoreflect.FullName = "google.protobuf.FieldOptions.FeatureSupport.deprecation_warning"
 	FieldOptions_FeatureSupport_EditionRemoved_field_fullname     protoreflect.FullName = "google.protobuf.FieldOptions.FeatureSupport.edition_removed"
+	FieldOptions_FeatureSupport_RemovalError_field_fullname       protoreflect.FullName = "google.protobuf.FieldOptions.FeatureSupport.removal_error"
 )
 
 // Field numbers for google.protobuf.FieldOptions.FeatureSupport.
@@ -819,6 +822,7 @@ const (
 	FieldOptions_FeatureSupport_EditionDeprecated_field_number  protoreflect.FieldNumber = 2
 	FieldOptions_FeatureSupport_DeprecationWarning_field_number protoreflect.FieldNumber = 3
 	FieldOptions_FeatureSupport_EditionRemoved_field_number     protoreflect.FieldNumber = 4
+	FieldOptions_FeatureSupport_RemovalError_field_number       protoreflect.FieldNumber = 5
 )
 
 // Names for google.protobuf.OneofOptions.
@@ -1039,6 +1043,7 @@ const (
 	FeatureSet_JsonFormat_field_name              protoreflect.Name = "json_format"
 	FeatureSet_EnforceNamingStyle_field_name      protoreflect.Name = "enforce_naming_style"
 	FeatureSet_DefaultSymbolVisibility_field_name protoreflect.Name = "default_symbol_visibility"
+	FeatureSet_EnforceProtoLimits_field_name      protoreflect.Name = "enforce_proto_limits"
 
 	FeatureSet_FieldPresence_field_fullname           protoreflect.FullName = "google.protobuf.FeatureSet.field_presence"
 	FeatureSet_EnumType_field_fullname                protoreflect.FullName = "google.protobuf.FeatureSet.enum_type"
@@ -1048,6 +1053,7 @@ const (
 	FeatureSet_JsonFormat_field_fullname              protoreflect.FullName = "google.protobuf.FeatureSet.json_format"
 	FeatureSet_EnforceNamingStyle_field_fullname      protoreflect.FullName = "google.protobuf.FeatureSet.enforce_naming_style"
 	FeatureSet_DefaultSymbolVisibility_field_fullname protoreflect.FullName = "google.protobuf.FeatureSet.default_symbol_visibility"
+	FeatureSet_EnforceProtoLimits_field_fullname      protoreflect.FullName = "google.protobuf.FeatureSet.enforce_proto_limits"
 )
 
 // Field numbers for google.protobuf.FeatureSet.
@@ -1060,6 +1066,7 @@ const (
 	FeatureSet_JsonFormat_field_number              protoreflect.FieldNumber = 6
 	FeatureSet_EnforceNamingStyle_field_number      protoreflect.FieldNumber = 7
 	FeatureSet_DefaultSymbolVisibility_field_number protoreflect.FieldNumber = 8
+	FeatureSet_EnforceProtoLimits_field_number      protoreflect.FieldNumber = 9
 )
 
 // Full and short names for google.protobuf.FeatureSet.FieldPresence.
@@ -1152,6 +1159,7 @@ const (
 	FeatureSet_ENFORCE_NAMING_STYLE_UNKNOWN_enum_value = 0
 	FeatureSet_STYLE2024_enum_value                    = 1
 	FeatureSet_STYLE_LEGACY_enum_value                 = 2
+	FeatureSet_STYLE2026_enum_value                    = 3
 )
 
 // Names for google.protobuf.FeatureSet.VisibilityFeature.
@@ -1173,6 +1181,25 @@ const (
 	FeatureSet_VisibilityFeature_EXPORT_TOP_LEVEL_enum_value                  = 2
 	FeatureSet_VisibilityFeature_LOCAL_ALL_enum_value                         = 3
 	FeatureSet_VisibilityFeature_STRICT_enum_value                            = 4
+)
+
+// Names for google.protobuf.FeatureSet.ProtoLimitsFeature.
+const (
+	FeatureSet_ProtoLimitsFeature_message_name     protoreflect.Name     = "ProtoLimitsFeature"
+	FeatureSet_ProtoLimitsFeature_message_fullname protoreflect.FullName = "google.protobuf.FeatureSet.ProtoLimitsFeature"
+)
+
+// Full and short names for google.protobuf.FeatureSet.ProtoLimitsFeature.EnforceProtoLimits.
+const (
+	FeatureSet_ProtoLimitsFeature_EnforceProtoLimits_enum_fullname = "google.protobuf.FeatureSet.ProtoLimitsFeature.EnforceProtoLimits"
+	FeatureSet_ProtoLimitsFeature_EnforceProtoLimits_enum_name     = "EnforceProtoLimits"
+)
+
+// Enum values for google.protobuf.FeatureSet.ProtoLimitsFeature.EnforceProtoLimits.
+const (
+	FeatureSet_ProtoLimitsFeature_PROTO_LIMITS_UNKNOWN_enum_value      = 0
+	FeatureSet_ProtoLimitsFeature_LEGACY_NO_EXPLICIT_LIMITS_enum_value = 1
+	FeatureSet_ProtoLimitsFeature_PROTO_LIMITS2026_enum_value          = 2
 )
 
 // Names for google.protobuf.FeatureSetDefaults.
