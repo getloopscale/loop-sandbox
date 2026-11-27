@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: LoopSandbox API
-  version: 0.6.0
+  version: 0.1.0
   description: >
     Control-plane API for LoopSandbox: sandbox lifecycle, command execution, files,
     code sessions, terminals, browser control, fork, pause, volumes and templates.
