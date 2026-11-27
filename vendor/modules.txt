@@ -269,7 +269,7 @@ github.com/jackc/pgx/v5/pgxpool
 ## explicit; go 1.19
 github.com/jackc/puddle/v2
 github.com/jackc/puddle/v2/internal/genstack
-# github.com/johannesboyne/gofakes3 v1.2.0
+# github.com/johannesboyne/gofakes3 v1.3.0
 ## explicit; go 1.24
 github.com/johannesboyne/gofakes3
 github.com/johannesboyne/gofakes3/backend/s3mem

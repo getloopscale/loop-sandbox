@@ -496,6 +496,13 @@ func (g *GoFakeS3) getObject(
 	// Writes Content-Length, and Content-Range if applicable:
 	obj.Range.writeHeader(obj.Size, w)
 	if obj.Range != nil {
+		// The stored checksum covers the whole object; SDKs check it against
+		// the partial body and fail.
+		for hk := range w.Header() {
+			if strings.HasPrefix(hk, "X-Amz-Checksum-") {
+				w.Header().Del(hk)
+			}
+		}
 		w.WriteHeader(http.StatusPartialContent)
 	}
 
@@ -686,25 +693,26 @@ func (g *GoFakeS3) createObject(bucket, object string, w http.ResponseWriter, r 
 		return err
 	}
 
-	if _, ok := meta["X-Amz-Copy-Source"]; ok {
-		return g.copyObject(bucket, object, meta, w, r)
-	}
-
-	// Parse conditional headers for PutObject
-	conditions, err := parsePutConditions(r.Header)
+	dest, err := ParseWriteConditions(r.Header)
 	if err != nil {
 		return err
 	}
-
-	contentLength := r.Header.Get("Content-Length")
-	if contentLength == "" {
-		return ErrMissingContentLength
+	if _, ok := meta["X-Amz-Copy-Source"]; ok {
+		return g.copyObject(bucket, object, meta, w, r, dest)
 	}
 
-	size, err := strconv.ParseInt(contentLength, 10, 64)
-	if err != nil || size < 0 {
-		w.WriteHeader(http.StatusBadRequest) // XXX: no code for this, according to s3tests
-		return nil
+	var size int64
+	if !hasDecodedLength(r) {
+		contentLength := r.Header.Get("Content-Length")
+		if contentLength == "" {
+			return ErrMissingContentLength
+		}
+
+		size, err = strconv.ParseInt(contentLength, 10, 64)
+		if err != nil || size < 0 {
+			w.WriteHeader(http.StatusBadRequest) // XXX: no code for this, according to s3tests
+			return nil
+		}
 	}
 
 	if len(object) > KeySizeLimit {
@@ -722,8 +730,8 @@ func (g *GoFakeS3) createObject(bucket, object string, w http.ResponseWriter, r 
 
 	var reader io.Reader
 
-	if sha, ok := meta["X-Amz-Content-Sha256"]; ok && sha == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD" {
-		reader = newChunkedReader(r.Body)
+	if sha, ok := meta["X-Amz-Content-Sha256"]; ok && isStreamingPayload(sha) {
+		reader = newChunkedReader(r.Body).verifyTrailer(meta["X-Amz-Trailer"])
 		size, err = strconv.ParseInt(meta["X-Amz-Decoded-Content-Length"], 10, 64)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest) // XXX: no code for this, according to s3tests
@@ -741,7 +749,12 @@ func (g *GoFakeS3) createObject(bucket, object string, w http.ResponseWriter, r 
 		return err
 	}
 
-	result, err := g.storage.PutObject(bucket, object, meta, rdr, size, conditions)
+	var result PutObjectResult
+	if b, ok := g.storage.(ConditionalWriteBackend); dest != nil && ok {
+		result, err = b.PutObjectConditional(bucket, object, meta, rdr, size, dest)
+	} else {
+		result, err = g.storage.PutObject(bucket, object, meta, rdr, size, dest.putConditions())
+	}
 	if err != nil {
 		return err
 	}
@@ -756,7 +769,7 @@ func (g *GoFakeS3) createObject(bucket, object string, w http.ResponseWriter, r 
 }
 
 // CopyObject copies an existing S3 object
-func (g *GoFakeS3) copyObject(bucket, object string, meta map[string]string, w http.ResponseWriter, r *http.Request) (err error) {
+func (g *GoFakeS3) copyObject(bucket, object string, meta map[string]string, w http.ResponseWriter, r *http.Request, dest *WriteConditions) (err error) {
 	if err := g.ensureBucketExists(bucket); err != nil {
 		return err
 	}
@@ -800,6 +813,13 @@ func (g *GoFakeS3) copyObject(bucket, object string, meta map[string]string, w h
 		return err
 	}
 
+	if srcObj.Contents != nil {
+		defer srcObj.Contents.Close()
+	}
+	if err := checkCopySource(r.Header, srcObj); err != nil {
+		return err
+	}
+
 	// XXX No support for delete marker
 	// "If the current version of the object is a delete marker, Amazon S3
 	// behaves as if the object was deleted."
@@ -811,7 +831,17 @@ func (g *GoFakeS3) copyObject(bucket, object string, meta map[string]string, w h
 		}
 	}
 
-	result, err := g.storage.CopyObject(srcBucket, srcKey, bucket, object, meta)
+	var result CopyObjectResult
+	if b, ok := g.storage.(ConditionalWriteBackend); dest != nil && ok {
+		result, err = b.CopyObjectConditional(srcBucket, srcKey, bucket, object, meta, dest)
+	} else {
+		if dest != nil {
+			if err := g.checkDestination(bucket, object, dest); err != nil {
+				return err
+			}
+		}
+		result, err = g.storage.CopyObject(srcBucket, srcKey, bucket, object, meta)
+	}
 	if err != nil {
 		return err
 	}
@@ -960,13 +990,26 @@ func (g *GoFakeS3) putMultipartUploadPart(bucket, object string, uploadID Upload
 		return ErrInvalidPart
 	}
 
-	size, err := strconv.ParseInt(r.Header.Get("Content-Length"), 10, 64)
-	if err != nil || size <= 0 {
-		return ErrMissingContentLength
+	if !hasDecodedLength(r) {
+		size, err := strconv.ParseInt(r.Header.Get("Content-Length"), 10, 64)
+		if err != nil || size <= 0 {
+			return ErrMissingContentLength
+		}
 	}
 
 	defer r.Body.Close()
 	var rdr io.Reader = r.Body
+	uploadSize := r.ContentLength
+
+	if isStreamingPayload(r.Header.Get("X-Amz-Content-Sha256")) {
+		rdr = newChunkedReader(r.Body).verifyTrailer(r.Header.Get("X-Amz-Trailer"))
+		decoded, err := strconv.ParseInt(r.Header.Get("X-Amz-Decoded-Content-Length"), 10, 64)
+		if err != nil || decoded < 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			return nil
+		}
+		uploadSize = decoded
+	}
 
 	if g.integrityCheck {
 		md5Base64 := r.Header.Get("Content-MD5")
@@ -983,13 +1026,22 @@ func (g *GoFakeS3) putMultipartUploadPart(bucket, object string, uploadID Upload
 		}
 	}
 
-	etag, err := g.uploader.UploadPart(bucket, object, uploadID, int(partNumber), r.ContentLength, rdr)
+	etag, err := g.uploader.UploadPart(bucket, object, uploadID, int(partNumber), uploadSize, rdr)
 	if err != nil {
 		return err
 	}
 
 	w.Header().Add("ETag", etag)
 	return nil
+}
+
+// Reports whether r is a streaming (aws-chunked) upload that
+// announces its payload size in X-Amz-Decoded-Content-Length. Such requests
+// may legitimately omit Content-Length, e.g. when sent with
+// Transfer-Encoding: chunked over TLS.
+func hasDecodedLength(r *http.Request) bool {
+	return isStreamingPayload(r.Header.Get("X-Amz-Content-Sha256")) &&
+		r.Header.Get("X-Amz-Decoded-Content-Length") != ""
 }
 
 func (g *GoFakeS3) abortMultipartUpload(bucket, object string, uploadID UploadID, w http.ResponseWriter, r *http.Request) error {
@@ -1009,7 +1061,22 @@ func (g *GoFakeS3) completeMultipartUpload(bucket, object string, uploadID Uploa
 		return err
 	}
 
-	versionID, etag, err := g.uploader.CompleteMultipartUpload(bucket, object, uploadID, &in)
+	dest, err := ParseWriteConditions(r.Header)
+	if err != nil {
+		return err
+	}
+	var versionID VersionID
+	var etag string
+	if b, ok := g.uploader.(ConditionalMultipartBackend); dest != nil && ok {
+		versionID, etag, err = b.CompleteMultipartUploadConditional(bucket, object, uploadID, &in, dest)
+	} else {
+		if dest != nil {
+			if err := g.checkDestination(bucket, object, dest); err != nil {
+				return err
+			}
+		}
+		versionID, etag, err = g.uploader.CompleteMultipartUpload(bucket, object, uploadID, &in)
+	}
 	if err != nil {
 		return err
 	}
@@ -1196,6 +1263,20 @@ func metadataHeaders(headers map[string][]string, at time.Time, sizeLimit int) (
 			meta[hk] = hv[0]
 		}
 	}
+	// aws-chunked is a transport encoding, not part of the stored object so strip it.
+	if ce, ok := meta["Content-Encoding"]; ok {
+		var encodings []string
+		for _, e := range strings.Split(ce, ",") {
+			if e = strings.TrimSpace(e); e != "" && !strings.EqualFold(e, "aws-chunked") {
+				encodings = append(encodings, e)
+			}
+		}
+		if len(encodings) == 0 {
+			delete(meta, "Content-Encoding")
+		} else {
+			meta["Content-Encoding"] = strings.Join(encodings, ",")
+		}
+	}
 	meta["Last-Modified"] = formatHeaderTime(at)
 
 	if sizeLimit > 0 && metadataSize(meta) > sizeLimit {
@@ -1251,28 +1332,4 @@ func listBucketVersionsPageFromQuery(query url.Values) (page ListBucketVersionsP
 	_, page.HasVersionIDMarker = query["version-id-marker"]
 
 	return page, nil
-}
-
-// parsePutConditions extracts conditional headers from HTTP request headers
-// and returns a PutConditions struct, or nil if no conditional headers are present.
-func parsePutConditions(headers http.Header) (*PutConditions, error) {
-	var conditions *PutConditions
-
-	// Check If-Match header
-	if ifMatch := headers.Get("If-Match"); ifMatch != "" {
-		if conditions == nil {
-			conditions = &PutConditions{}
-		}
-		conditions.IfMatch = &ifMatch
-	}
-
-	// Check If-None-Match header
-	if ifNoneMatch := headers.Get("If-None-Match"); ifNoneMatch != "" {
-		if conditions == nil {
-			conditions = &PutConditions{}
-		}
-		conditions.IfNoneMatch = &ifNoneMatch
-	}
-
-	return conditions, nil
 }
