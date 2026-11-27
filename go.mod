@@ -17,7 +17,7 @@ require (
 	github.com/google/nftables v0.3.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/johannesboyne/gofakes3 v1.2.0
+	github.com/johannesboyne/gofakes3 v1.3.0
 	github.com/mark3labs/mcp-go v0.56.0
 	github.com/mdlayher/vsock v1.3.0
 	github.com/nats-io/nats-server/v2 v2.14.3
