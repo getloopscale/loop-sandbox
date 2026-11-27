@@ -167,9 +167,18 @@ func TestProcessSignalEndsTheProcessAndItsChildren(t *testing.T) {
 	if sent.Err != "" || last.Process.ExitCode != 143 {
 		t.Errorf("signal err=%q exit=%d, want none and 143", sent.Err, last.Process.ExitCode)
 	}
-	probe := roundTrip(t, conn, &agentproto.Request{Op: agentproto.OpExec, Cmd: []string{"sh", "-c", "kill -0 " + child}})
-	if probe.ExitCode == 0 {
-		t.Errorf("the child %s survived the signal", child)
+	// The signal reaches the whole group at once, but the child may still be
+	// exiting, or waiting to be reaped, when its parent is already gone.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		probe := roundTrip(t, conn, &agentproto.Request{Op: agentproto.OpExec, Cmd: []string{"sh", "-c", "kill -0 " + child}})
+		if probe.ExitCode != 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the child %s survived the signal", child)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
