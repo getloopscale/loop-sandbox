@@ -198,7 +198,9 @@ The API and the worker read their configuration from environment variables.
 | `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/loopsandbox?sslmode=disable` | PostgreSQL connection string. |
 | `LOOPSANDBOX_ADDR` | `:8080` | API listen address. |
 | `LOOPSANDBOX_DRIVER` | `fake` | Runtime driver: `fake`, `container` or `firecracker`. |
-| `LOOPSANDBOX_AUTH` | `standalone` | `standalone` authenticates API keys. `loopscale` verifies a signed edge forward plus a JWT and needs the `LOOPSANDBOX_LOOPSCALE_*` variables. |
+| `LOOPSANDBOX_AUTH` | `standalone` | `standalone` authenticates API keys. `loopscale` verifies a signed edge forward plus a JWT and needs the `LOOPSANDBOX_LOOPSCALE_*` variables. `gateway` trusts a gateway that authenticated the caller: see the two rows below. |
+| `LOOPSANDBOX_GATEWAY_PUBKEYS` | none | With `LOOPSANDBOX_AUTH=gateway`: comma-separated base64 Ed25519 public keys of the gateway. The sandbox accepts the tenant and the user of a request one of them signed, with the headers `X-Loop-Runtime-{User-ID,Tenant,Timestamp,Nonce,Signature}`. Whoever holds the private key acts as any tenant, so expose the API only to the gateway. |
+| `LOOPSANDBOX_GATEWAY_TENANT_PLAN` | `starter` | With `LOOPSANDBOX_AUTH=gateway`: plan of a tenant created on its first request. A tenant that exists keeps its plan. |
 | `LOOPSANDBOX_QUEUE` | `pg` | Worker job queue: `pg` (PostgreSQL) or `nats` (NATS JetStream, with `LOOPSANDBOX_NATS_URL`). |
 | `LOOPSANDBOX_RECONCILE_INTERVAL` | `10s` | How often the worker looks for expired sandboxes. |
 | `LOOPSANDBOX_EMBEDDED_WORKER` | unset | `true` runs the worker loops inside the API process. Always on with the `firecracker` driver. |
