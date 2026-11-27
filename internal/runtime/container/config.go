@@ -71,12 +71,19 @@ func hardenedConfig(spec Spec) (*dcontainer.Config, *dcontainer.HostConfig) {
 	if wsSize > maxTmpfsBytes {
 		wsSize = maxTmpfsBytes
 	}
-	wsOpts := "rw,nosuid,nodev,size=" + strconv.FormatInt(wsSize, 10)
+	// "exec" is spelled out: Docker mounts a tmpfs noexec unless the options say
+	// otherwise, and a native library, such as numpy's, cannot be loaded from a
+	// noexec mount.
+	wsOpts := "rw,exec,nosuid,nodev,size=" + strconv.FormatInt(wsSize, 10)
 
 	cfg := &dcontainer.Config{
-		Image:           spec.Image,
-		User:            "65534:65534", // nobody:nogroup — non-root
-		Cmd:             []string{"sleep", "infinity"},
+		Image: spec.Image,
+		User:  "65534:65534", // nobody:nogroup — non-root
+		Cmd:   []string{"sleep", "infinity"},
+		// The sandbox user has no home in the image and the root filesystem is
+		// read-only. The workspace is the one place it can write and execute, so it
+		// is the home: "pip install" with no option installs there and Python loads it.
+		Env:             []string{"HOME=" + defaultWorkDir},
 		NetworkDisabled: true,
 		Labels: map[string]string{
 			LabelManaged:   "true",

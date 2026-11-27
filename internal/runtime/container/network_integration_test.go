@@ -286,3 +286,22 @@ func TestNetworkOperationsOnASandboxWithoutOne(t *testing.T) {
 		t.Errorf("UpdateNetwork on a missing sandbox = %v, want ErrSandboxNotFound", err)
 	}
 }
+
+// The command a user types first. It takes no flag that tells pip where to write:
+// the sandbox has to offer a home pip can install into and Python can load from.
+func TestPlainPipInstallWorksAndTheLibraryLoads(t *testing.T) {
+	d, id := networkedSandbox(t, nil, nil)
+
+	res, err := d.Exec(context.Background(), id, runtime.ExecRequest{
+		Cmd: []string{"pip", "install", "pandas"}, Timeout: 5 * time.Minute,
+	})
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("pip install pandas: %v, exit %d\n%s%s", err, res.ExitCode, res.Stdout, res.Stderr)
+	}
+
+	// numpy is a native library: loading it needs a workspace that allows execution.
+	exit, out := python(t, d, id, `import pandas; print(pandas.DataFrame({"a": [1, 2]}).a.sum())`)
+	if exit != 0 || strings.TrimSpace(out) != "3" {
+		t.Errorf("import pandas: exit %d, output %q; want 3", exit, out)
+	}
+}
