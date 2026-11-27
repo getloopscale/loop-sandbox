@@ -160,7 +160,7 @@ Both SDKs are built from this repository.
 TypeScript (`sdk/javascript`, Node 18 or newer). Build it with `make sdk`.
 
 ```ts
-import { LoopSandbox } from '@loopsandbox/sdk';
+import { LoopSandbox } from 'loopsandbox';
 
 const client = new LoopSandbox({ baseUrl: 'http://localhost:8080', apiKey: process.env.LSB_API_KEY });
 const sandbox = await client.sandboxes.create({ image: 'busybox:latest', ttlSeconds: 300 });

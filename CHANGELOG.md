@@ -42,6 +42,7 @@ All notable changes to this project are recorded in this file. The format follow
 
 ### Changed
 
+- **Breaking:** the TypeScript SDK package is named `loopsandbox`, the same name as the Python package. It was `@loopsandbox/sdk`, which was never published.
 - **Breaking:** the integrated authentication mode is named `loopscale`: set `LOOPSANDBOX_AUTH=loopscale`, the variables are `LOOPSANDBOX_LOOPSCALE_*`, and the signed forward headers are `X-Loop-Runtime-User-ID`, `X-Loop-Runtime-Tenant`, `X-Loop-Runtime-Timestamp`, `X-Loop-Runtime-Nonce` and `X-Loop-Runtime-Signature`. The former `theo` mode, `LOOPSANDBOX_THEO_*` variables and `X-Theo-*` headers are gone.
 - **Breaking:** the Go module path is `github.com/getloopscale/loop-sandbox`, after the repository was renamed.
 - TypeScript SDK: a rate-limited idempotent request waits for the `Retry-After` time before it is retried, and a 501 answer is no longer retried.
