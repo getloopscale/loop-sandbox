@@ -1,0 +1,14 @@
+.git
+.github
+.claude
+BACKLOG.md
+bin
+node_modules
+**/node_modules
+**/__pycache__
+sdk/javascript/dist
+deployments/terraform
+knowledge-base
+testserver
+lsb-agent
+*.log

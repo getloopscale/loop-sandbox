@@ -1,0 +1,1822 @@
+openapi: 3.0.3
+info:
+  title: LoopSandbox API
+  version: 0.6.0
+  description: >
+    Control-plane API for LoopSandbox: sandbox lifecycle, command execution, files,
+    code sessions, terminals, browser control, fork, pause, volumes and templates.
+    Auth is an API key sent as a Bearer token.
+
+
+    Each API key has a request rate limit. A request beyond it answers 429 with
+    the error code rate_limited and a Retry-After header in seconds.
+
+
+    Not every runtime driver supports every operation. GET /v1/capabilities lists
+    what the active deployment supports; an operation outside that list answers 501
+    with the code "not_implemented".
+
+
+    The contract test in internal/api compares this document with the router, so a
+    route cannot be added or removed on one side only.
+  license:
+    name: Apache-2.0
+servers:
+  - url: /
+security:
+  - apiKey: []
+tags:
+  - name: sandboxes
+  - name: executions
+  - name: processes
+  - name: files
+  - name: sessions
+  - name: terminal
+  - name: browser
+  - name: volumes
+  - name: snapshots
+  - name: templates
+  - name: secrets
+  - name: api keys
+  - name: platform
+paths:
+  /v1/sandboxes:
+    get:
+      tags: [sandboxes]
+      operationId: listSandboxes
+      summary: List sandboxes
+      description: >
+        Returns one page of the caller's sandboxes, newest first. When more
+        sandboxes follow, the response has next_cursor; send it as the cursor
+        parameter, with the same filters, to get the next page.
+      parameters:
+        - name: state
+          in: query
+          description: Keep only sandboxes in one of these states. May repeat, or hold a comma-separated list.
+          schema:
+            type: array
+            items: { type: string, enum: [pending, running, paused, destroyed] }
+          style: form
+          explode: false
+        - name: metadata
+          in: query
+          description: >
+            Keep only sandboxes that carry this label, written key=value. May
+            repeat; a sandbox must carry every label given.
+          schema:
+            type: array
+            items: { type: string, example: 'team=search' }
+          style: form
+          explode: true
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          description: The next_cursor of the previous page.
+          schema: { type: string }
+      responses:
+        '200':
+          description: One page of sandboxes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SandboxList' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [sandboxes]
+      operationId: createSandbox
+      summary: Create a sandbox
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSandboxRequest' }
+      responses:
+        '201':
+          description: Sandbox created
+          headers:
+            Idempotent-Replay:
+              description: '"true" when this response replayed a prior request with the same Idempotency-Key.'
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sandbox' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '402': { $ref: '#/components/responses/QuotaExceeded' }
+        '409': { $ref: '#/components/responses/Error' }
+  /v1/sandboxes/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    get:
+      tags: [sandboxes]
+      operationId: getSandbox
+      summary: Get a sandbox
+      responses:
+        '200':
+          description: Sandbox
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sandbox' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [sandboxes]
+      operationId: destroySandbox
+      summary: Destroy a sandbox
+      responses:
+        '204': { description: Destroyed }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/sandboxes/{id}/timeout:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    post:
+      tags: [sandboxes]
+      operationId: setSandboxTimeout
+      summary: Change when a sandbox expires
+      description: >
+        The sandbox now expires ttl_seconds after this request, whatever its
+        previous expiry was, so the call can shorten or extend the lifetime. A
+        value above 3600 is capped at 3600, as at creation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ttl_seconds]
+              properties:
+                ttl_seconds: { type: integer, format: int64, minimum: 1, example: 600 }
+      responses:
+        '200':
+          description: The sandbox with its new expires_at
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sandbox' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /v1/sandboxes/{id}/fork:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    post:
+      tags: [sandboxes]
+      operationId: forkSandbox
+      summary: Fork a running sandbox
+      description: >
+        Creates a new sandbox that starts from the memory and disk state of this
+        one. Capability "fork". With "count" in the body, creates that many
+        independent forks and answers with a list. A batch is all or nothing:
+        when one fork fails, the ones already made are destroyed.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                count: { type: integer, minimum: 1, maximum: 16 }
+      responses:
+        '201':
+          description: >
+            The forked sandbox, or an object with the list "sandboxes" when the
+            request has "count".
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/Sandbox'
+                  - type: object
+                    required: [sandboxes]
+                    properties:
+                      sandboxes:
+                        type: array
+                        items: { $ref: '#/components/schemas/Sandbox' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '402': { $ref: '#/components/responses/QuotaExceeded' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/pause:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    post:
+      tags: [sandboxes]
+      operationId: pauseSandbox
+      summary: Pause a sandbox
+      description: >
+        Snapshots the sandbox to durable storage and releases its compute. The
+        sandbox state becomes "paused". Capability "pause".
+      responses:
+        '200': { description: Paused (empty body) }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/resume:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    post:
+      tags: [sandboxes]
+      operationId: resumeSandbox
+      summary: Resume a paused sandbox
+      description: Capability "pause".
+      responses:
+        '200':
+          description: The resumed sandbox
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sandbox' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/executions:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    post:
+      tags: [executions]
+      operationId: createExecution
+      summary: Run a command in a sandbox
+      description: >
+        A non-zero exit code is a normal 200 result: a failed process is not a
+        failed request. A command that runs past its timeout answers 504.
+
+
+        With stream=1 the response is a Server-Sent Events stream (capability
+        "exec_stream"): one "stdout" or "stderr" event per output chunk, each with
+        data {"data": "<text>"}, then one "done" event with data {"exit_code": N}.
+        A failure after output started arrives as an "error" event, because the
+        200 status was already sent.
+      parameters:
+        - name: stream
+          in: query
+          required: false
+          description: '"1" or "true" streams the output as Server-Sent Events.'
+          schema: { type: string, enum: ['1', 'true'] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExecRequest' }
+      responses:
+        '200':
+          description: Execution result, or the event stream when stream=1
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecResult' }
+            text/event-stream:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+        '504': { $ref: '#/components/responses/Error' }
+  /v1/sandboxes/{id}/files:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    get:
+      tags: [files]
+      operationId: listFiles
+      summary: List a directory
+      parameters:
+        - name: path
+          in: query
+          required: false
+          description: Directory under /workspace. Defaults to /workspace.
+          schema: { type: string }
+      responses:
+        '200':
+          description: The immediate children of the directory
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [files]
+                properties:
+                  files:
+                    type: array
+                    items: { $ref: '#/components/schemas/FileEntry' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/sandboxes/{id}/files/{path}:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+      - $ref: '#/components/parameters/FilePath'
+    put:
+      tags: [files]
+      operationId: putFile
+      summary: Write a file
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '204': { description: Written }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+    get:
+      tags: [files]
+      operationId: getFile
+      summary: Read a file
+      responses:
+        '200':
+          description: File content
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [files]
+      operationId: deleteFile
+      summary: Delete a file
+      responses:
+        '204': { description: Deleted }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/sandboxes/{id}/file-info/{path}:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+      - $ref: '#/components/parameters/FilePath'
+    get:
+      tags: [files]
+      operationId: getFileInfo
+      summary: Describe a file or directory
+      description: A symbolic link is described as the link itself. Capability "file_ops".
+      responses:
+        '200':
+          description: The path's size, type, permissions and modification time
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FileInfo' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/directories/{path}:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+      - $ref: '#/components/parameters/FilePath'
+    put:
+      tags: [files]
+      operationId: makeDirectory
+      summary: Create a directory
+      description: >
+        Creates the directory and any missing parent. A directory that already
+        exists answers 204; a path that exists and is not a directory answers
+        409. Capability "file_ops".
+      responses:
+        '204': { description: The directory exists }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/file-moves:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    post:
+      tags: [files]
+      operationId: moveFile
+      summary: Move or rename a file or directory
+      description: >
+        Renames "from" to "to" and creates the parents of "to". When "to"
+        exists, the move answers 409 with the code "already_exists" unless
+        "overwrite" is true, in which case "to" is replaced, with everything
+        under it when it is a directory. Capability "file_ops".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from: { type: string, example: /workspace/draft.txt }
+                to: { type: string, example: /workspace/final/report.txt }
+                overwrite: { type: boolean, default: false }
+      responses:
+        '204': { description: Moved }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/file-urls:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    post:
+      tags: [files]
+      operationId: createFileUrl
+      summary: Create a signed URL to upload or download one file
+      description: >
+        Returns a URL that lets whoever holds it upload or download one file of
+        the sandbox without an API key, until it expires. Revoking the API key
+        that asked for the URL does not revoke the URL; it stops working when
+        it expires or the sandbox is destroyed. Answers 501 when the deployment
+        has no LOOPSANDBOX_URL_SIGNING_KEY.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, operation]
+              properties:
+                path: { type: string, example: /workspace/report.pdf }
+                operation: { type: string, enum: [upload, download] }
+                expires_in_seconds: { type: integer, minimum: 1, maximum: 3600, default: 300 }
+      responses:
+        '201':
+          description: The URL and the HTTP method to use with it
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, method, expires_at]
+                properties:
+                  url: { type: string, format: uri }
+                  method: { type: string, enum: [GET, PUT] }
+                  expires_at: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/signed-files/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        description: The last segment of a URL returned by the file-urls route.
+        schema: { type: string }
+    get:
+      tags: [files]
+      operationId: downloadSignedFile
+      summary: Download a file with a signed URL
+      description: >
+        Needs no API key. A URL that is expired, altered or was issued for
+        upload answers 403.
+      security: []
+      responses:
+        '200':
+          description: The file, as an attachment
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    put:
+      tags: [files]
+      operationId: uploadSignedFile
+      summary: Upload a file with a signed URL
+      description: >
+        Needs no API key. The request body becomes the file, replacing one that
+        exists. A URL that is expired, altered or was issued for download
+        answers 403.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '204': { description: Stored }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+  /v1/sandboxes/{id}/artifact-url/{path}:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+      - $ref: '#/components/parameters/FilePath'
+    get:
+      tags: [files]
+      operationId: getArtifactUrl
+      summary: Get a presigned download URL for a file
+      description: >
+        Copies the file to object storage and returns a time-limited URL. Answers
+        501 when the deployment has no object storage configured.
+      responses:
+        '200':
+          description: Presigned URL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArtifactUrl' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/logs:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    get:
+      tags: [processes]
+      operationId: getSandboxLogs
+      summary: Read the output of every background process
+      description: >
+        Returns, in the order it was written, what the background processes of
+        the sandbox wrote after the cursor "after", which counts bytes. Send
+        the "next" of one answer as the "after" of the following request. The
+        sandbox keeps the last 1 MiB: when the cursor points to output that is
+        gone, "truncated" is true. Commands run by the executions route are
+        not in the log. Capability "logs".
+      parameters:
+        - name: after
+          in: query
+          description: Cursor from the "next" of an earlier answer. Default 0.
+          schema: { type: integer, format: int64, minimum: 0, default: 0 }
+        - name: wait_ms
+          in: query
+          description: With no output after the cursor, wait up to this long for some.
+          schema: { type: integer, minimum: 0, maximum: 30000, default: 0 }
+      responses:
+        '200':
+          description: The output after the cursor
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries, next, truncated]
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      required: [pid, stream, data, at]
+                      properties:
+                        pid: { type: integer }
+                        stream: { type: string, enum: [stdout, stderr] }
+                        data: { type: string }
+                        at: { type: string, format: date-time }
+                  next: { type: integer, format: int64 }
+                  truncated: { type: boolean }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/metrics:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    get:
+      tags: [sandboxes]
+      operationId: getSandboxMetrics
+      summary: Read the CPU and memory use of a sandbox
+      description: >
+        "cpu_usage_ns" is the CPU time used since the sandbox started. For a
+        rate, take two samples and divide the difference by the time between
+        their "at". Capability "metrics".
+      responses:
+        '200':
+          description: The resource use at "at"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cpu_usage_ns, memory_used_bytes, memory_limit_bytes, at]
+                properties:
+                  cpu_usage_ns: { type: integer, format: int64 }
+                  memory_used_bytes: { type: integer, format: int64 }
+                  memory_limit_bytes: { type: integer, format: int64 }
+                  at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/watches:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    post:
+      tags: [files]
+      operationId: startWatch
+      summary: Watch a directory for changes
+      description: >
+        Starts recording the changes to a directory, and to the directories
+        under it when "recursive" is true. Read them with the events route. A
+        symbolic link to a directory is not followed. A sandbox holds at most
+        16 watches; beyond that the answer is 409 with the code
+        "too_many_watches". A watch nobody reads for 10 minutes may be removed
+        when a new one is started. Capability "file_watch".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string, example: /workspace/out }
+                recursive: { type: boolean, default: false }
+      responses:
+        '201':
+          description: The watch is recording
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [watch_id, path, recursive]
+                properties:
+                  watch_id: { type: string }
+                  path: { type: string }
+                  recursive: { type: boolean }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/watches/{wid}/events:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+      - $ref: '#/components/parameters/WatchId'
+    get:
+      tags: [files]
+      operationId: getWatchEvents
+      summary: Read the events of a directory watch
+      description: >
+        Returns the events after the cursor "after", which counts events. Send
+        the "next" of one answer as the "after" of the following request; a
+        client that lost its connection resumes the same way. The sandbox keeps
+        the last 4096 events of a watch: when the cursor points to events that
+        are gone, "truncated" is true. An event of type "overflow" means events
+        were lost and the directory should be listed again. Consecutive writes
+        to one file that no reader has seen yet are reported once.
+      parameters:
+        - name: after
+          in: query
+          description: Cursor from the "next" of an earlier answer. Default 0.
+          schema: { type: integer, format: int64, minimum: 0, default: 0 }
+        - name: wait_ms
+          in: query
+          description: With no event after the cursor, wait up to this long for one.
+          schema: { type: integer, minimum: 0, maximum: 30000, default: 0 }
+      responses:
+        '200':
+          description: The events after the cursor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FileEvents' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/watches/{wid}:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+      - $ref: '#/components/parameters/WatchId'
+    delete:
+      tags: [files]
+      operationId: stopWatch
+      summary: Stop a directory watch
+      responses:
+        '204': { description: Stopped }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/processes:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    post:
+      tags: [processes]
+      operationId: startProcess
+      summary: Start a background process
+      description: >
+        Starts a command and answers at once, without waiting for it to end.
+        Read its output with the output route. The sandbox's env applies, and a
+        variable in the request wins. A sandbox runs at most 32 processes at a
+        time; beyond that the answer is 409 with the code "too_many_processes".
+        Capability "processes".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cmd]
+              properties:
+                cmd:
+                  type: array
+                  items: { type: string }
+                  example: ['python3', '-m', 'http.server', '8000']
+                env:
+                  type: object
+                  additionalProperties: { type: string }
+                workdir: { type: string, description: Directory under /workspace. }
+      responses:
+        '201':
+          description: The process is running
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Process' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+    get:
+      tags: [processes]
+      operationId: listProcesses
+      summary: List background processes
+      description: >
+        Lists the processes started through this API, oldest first, including
+        the most recent ones that ended. Commands run by the executions route
+        are not listed. Capability "processes".
+      responses:
+        '200':
+          description: The processes of the sandbox
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [processes]
+                properties:
+                  processes:
+                    type: array
+                    items: { $ref: '#/components/schemas/Process' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/processes/{pid}:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+      - $ref: '#/components/parameters/ProcessId'
+    get:
+      tags: [processes]
+      operationId: getProcess
+      summary: Describe a background process
+      responses:
+        '200':
+          description: The process
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Process' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/processes/{pid}/output:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+      - $ref: '#/components/parameters/ProcessId'
+    get:
+      tags: [processes]
+      operationId: getProcessOutput
+      summary: Read the output of a background process
+      description: >
+        Returns what the process wrote after the cursor "after", which counts
+        the bytes of stdout and stderr together. Send the "next" of one answer
+        as the "after" of the following request; a client that lost its
+        connection resumes the same way, and "after=0" reads from the start.
+        The sandbox keeps the last 1 MiB of output per process: when the cursor
+        points to output that is gone, "truncated" is true and the answer
+        starts at the oldest byte kept. The output stays readable after the
+        process ends.
+      parameters:
+        - name: after
+          in: query
+          description: Cursor from the "next" of an earlier answer. Default 0.
+          schema: { type: integer, format: int64, minimum: 0, default: 0 }
+        - name: wait_ms
+          in: query
+          description: >
+            With no output after the cursor, wait up to this long for some, or
+            for the process to end.
+          schema: { type: integer, minimum: 0, maximum: 30000, default: 0 }
+      responses:
+        '200':
+          description: The output after the cursor and the state of the process
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProcessOutput' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/processes/{pid}/stdin:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+      - $ref: '#/components/parameters/ProcessId'
+    post:
+      tags: [processes]
+      operationId: writeProcessStdin
+      summary: Write to the standard input of a background process
+      description: >
+        The request body is written as is, up to 1 MiB. A process that ended
+        answers 409 with the code "process_exited"; one whose input was closed
+        answers 409 with the code "stdin_closed".
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '204': { description: Written }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+    delete:
+      tags: [processes]
+      operationId: closeProcessStdin
+      summary: Close the standard input of a background process
+      description: The process reads the end of its input. Closing twice answers 204.
+      responses:
+        '204': { description: Closed }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/processes/{pid}/signal:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+      - $ref: '#/components/parameters/ProcessId'
+    post:
+      tags: [processes]
+      operationId: signalProcess
+      summary: Send a signal to a background process
+      description: >
+        The signal goes to the process and to the processes it started. A
+        process that ended answers 409 with the code "process_exited".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [signal]
+              properties:
+                signal:
+                  type: string
+                  enum: [HUP, INT, QUIT, KILL, TERM, USR1, USR2, STOP, CONT]
+      responses:
+        '204': { description: Sent }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/sessions:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    post:
+      tags: [sessions]
+      operationId: startSession
+      summary: Start a code session
+      description: >
+        Starts an interpreter whose variables persist between cells. Capability
+        "sessions".
+      responses:
+        '201':
+          description: Session started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session_id]
+                properties:
+                  session_id: { type: string }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/sessions/{sid}/execute:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [sessions]
+      operationId: runCell
+      summary: Run a code cell in a session
+      description: >
+        With stream=1 the response is a Server-Sent Events stream (capability
+        "session_stream"): one "stdout" or "stderr" event per output chunk, each
+        with data {"data": "<text>"}, then one "done" event with data
+        {"exit_code": N, "stderr": "<text>"}. A failure arrives as an "error" event.
+      parameters:
+        - name: stream
+          in: query
+          required: false
+          description: '"1" or "true" streams the output as Server-Sent Events.'
+          schema: { type: string, enum: ['1', 'true'] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, example: 'x = 6 * 7; print(x)' }
+      responses:
+        '200':
+          description: Cell result, or the event stream when stream=1
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecResult' }
+            text/event-stream:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/sessions/{sid}:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+      - $ref: '#/components/parameters/SessionId'
+    delete:
+      tags: [sessions]
+      operationId: closeSession
+      summary: Close a code session
+      responses:
+        '204': { description: Closed }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/pty:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    get:
+      tags: [terminal]
+      operationId: openPty
+      summary: Open an interactive terminal (WebSocket)
+      description: >
+        Upgrades to a WebSocket attached to a shell in the sandbox. Binary frames
+        carry raw terminal bytes in both directions. A text frame
+        {"type":"resize","rows":R,"cols":C} resizes the window. The socket closes
+        when the shell exits. Capability "pty".
+      responses:
+        '101': { description: Switching protocols to WebSocket }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/browser/navigate:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    post:
+      tags: [browser]
+      operationId: browserNavigate
+      summary: Navigate the sandbox browser to a URL
+      description: >
+        The URL passes the egress policy first: private, loopback and cloud
+        metadata addresses are refused with 400. Capability "browser".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, example: 'https://example.com' }
+      responses:
+        '204': { description: Navigated }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/browser/screenshot:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    get:
+      tags: [browser]
+      operationId: browserScreenshot
+      summary: Capture the current page as a PNG
+      responses:
+        '200':
+          description: PNG image
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/browser/dom:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    get:
+      tags: [browser]
+      operationId: browserDom
+      summary: Read the HTML of the current page
+      responses:
+        '200':
+          description: Serialized DOM
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [dom]
+                properties:
+                  dom: { type: string }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/browser/input:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    post:
+      tags: [browser]
+      operationId: browserInput
+      summary: Send a click, text or scroll to the page
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BrowserInput' }
+      responses:
+        '204': { description: Input delivered }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/sandboxes/{id}/snapshots:
+    parameters:
+      - $ref: '#/components/parameters/SandboxId'
+    post:
+      tags: [snapshots]
+      operationId: createSnapshot
+      summary: Save the state of a running sandbox under a name
+      description: >
+        Saves the memory and disk state of the sandbox, which keeps running.
+        New sandboxes start from the snapshot with "snapshot" in the create
+        request. A tenant keeps at most 20 snapshots. Capability "snapshots".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  pattern: '^[a-z0-9][a-z0-9._-]{0,62}$'
+                  description: Unique within the tenant.
+      responses:
+        '201':
+          description: The snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Snapshot' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/snapshots:
+    get:
+      tags: [snapshots]
+      operationId: listSnapshots
+      summary: List the snapshots of the tenant, oldest first
+      responses:
+        '200':
+          description: The snapshots
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [snapshots]
+                properties:
+                  snapshots:
+                    type: array
+                    items: { $ref: '#/components/schemas/Snapshot' }
+        '401': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/snapshots/{snapid}:
+    parameters:
+      - name: snapid
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [snapshots]
+      operationId: getSnapshot
+      summary: Get one snapshot
+      responses:
+        '200':
+          description: The snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Snapshot' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+    delete:
+      tags: [snapshots]
+      operationId: deleteSnapshot
+      summary: Delete a snapshot
+      description: Sandboxes already started from the snapshot keep running.
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/secrets:
+    get:
+      tags: [secrets]
+      operationId: listSecrets
+      summary: List the secrets of the tenant, by name
+      description: The values are never returned. Needs the scope secrets:manage.
+      responses:
+        '200':
+          description: The secrets
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [secrets]
+                properties:
+                  secrets:
+                    type: array
+                    items: { $ref: '#/components/schemas/Secret' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/secrets/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[A-Za-z_][A-Za-z0-9_]{0,127}$' }
+        description: The name of the secret, which is also the name of the environment variable.
+    put:
+      tags: [secrets]
+      operationId: putSecret
+      summary: Create a secret or replace its value
+      description: >
+        The value is stored encrypted and no route returns it. A sandbox created
+        with the name in "secrets" receives it in the environment of its
+        commands; a new value reaches the next command of sandboxes that already
+        exist. A tenant keeps at most 100 secrets. Needs the scope secrets:manage.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: { type: string, minLength: 1, maxLength: 4096, writeOnly: true }
+      responses:
+        '200':
+          description: The value was replaced
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Secret' }
+        '201':
+          description: The secret was created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Secret' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+    delete:
+      tags: [secrets]
+      operationId: deleteSecret
+      summary: Delete a secret
+      description: >
+        A sandbox that names the secret can no longer run commands: they answer
+        409 secret_unavailable until a secret with the name exists again. Needs
+        the scope secrets:manage.
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/volumes:
+    post:
+      tags: [volumes]
+      operationId: createVolume
+      summary: Create a durable volume and attach it to a sandbox
+      description: >
+        The volume is mounted at /workspace/<name> and outlives the sandbox.
+        Creating a volume with the name of an existing detached one reattaches it.
+        A sandbox that cannot take another volume answers 409. Capability "volumes".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateVolumeRequest' }
+      responses:
+        '201':
+          description: Volume attached
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Volume' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '402': { $ref: '#/components/responses/QuotaExceeded' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+    get:
+      tags: [volumes]
+      operationId: listVolumes
+      summary: List the volumes attached to a sandbox
+      parameters:
+        - name: sandbox_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Volumes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [volumes]
+                properties:
+                  volumes:
+                    type: array
+                    items: { $ref: '#/components/schemas/Volume' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/volumes/{vid}:
+    parameters:
+      - name: vid
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [volumes]
+      operationId: deleteVolume
+      summary: Delete a volume and its data
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/api-keys:
+    get:
+      tags: [api keys]
+      operationId: listApiKeys
+      summary: List the tenant's API keys
+      description: Revoked keys are included, with revoked_at set. Needs the scope "api_keys:manage".
+      responses:
+        '200':
+          description: The keys, oldest first. The secrets are never returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api_keys]
+                properties:
+                  api_keys:
+                    type: array
+                    items: { $ref: '#/components/schemas/ApiKey' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+    post:
+      tags: [api keys]
+      operationId: createApiKey
+      summary: Create an API key
+      description: >
+        The response is the only place the secret appears; the server stores its
+        hash. The new key can carry only scopes that the calling credential
+        holds. Needs the scope "api_keys:manage".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 64, example: ci }
+                scopes:
+                  type: array
+                  description: Defaults to ["sandbox:execute"].
+                  items: { $ref: '#/components/schemas/Scope' }
+      responses:
+        '201':
+          description: The key, with its secret in the field "key"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiKey'
+                  - type: object
+                    required: [key]
+                    properties:
+                      key: { type: string, description: The secret. Shown once. }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/api-keys/{kid}:
+    parameters:
+      - name: kid
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [api keys]
+      operationId: revokeApiKey
+      summary: Revoke an API key
+      description: >
+        The key is refused from the next request on. Revoking a key that is
+        already revoked answers 204. A credential may revoke itself. Needs the
+        scope "api_keys:manage".
+      responses:
+        '204': { description: Revoked }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/capabilities:
+    get:
+      tags: [platform]
+      operationId: getCapabilities
+      summary: List what the active runtime driver supports
+      responses:
+        '200':
+          description: Driver name and one entry per known capability
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Capabilities' }
+        '401': { $ref: '#/components/responses/Error' }
+  /v1/templates:
+    get:
+      tags: [templates]
+      operationId: listTemplates
+      summary: List the built-in, own and public templates
+      responses:
+        '200':
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [templates]
+                properties:
+                  templates:
+                    type: array
+                    items: { $ref: '#/components/schemas/TemplateListEntry' }
+        '401': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [templates]
+      operationId: registerTemplate
+      summary: Register a template from a digest-pinned image
+      description: A public template must pass the vulnerability scan; a failed scan answers 422.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterTemplateRequest' }
+      responses:
+        '201':
+          description: Template registered
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/templates/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [templates]
+      operationId: getTemplate
+      summary: Get a registered template
+      responses:
+        '200':
+          description: Template
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/NotImplemented' }
+  /v1/healthz:
+    get:
+      tags: [platform]
+      operationId: healthz
+      summary: Liveness
+      security: []
+      responses:
+        '200':
+          description: Alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+  /v1/readyz:
+    get:
+      tags: [platform]
+      operationId: readyz
+      summary: Readiness (dependencies reachable)
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ready }
+        '503': { $ref: '#/components/responses/Error' }
+  /metrics:
+    get:
+      tags: [platform]
+      operationId: metrics
+      summary: Prometheus metrics
+      security: []
+      responses:
+        '200':
+          description: Prometheus text exposition
+          content:
+            text/plain:
+              schema: { type: string }
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: >
+        API key (lsb_...) sent as "Authorization: Bearer <key>". A key carries
+        scopes: "sandbox:execute" is needed by every route except the API key
+        routes, which need "api_keys:manage". A key without the scope of a route
+        gets 403 with the code "forbidden".
+  parameters:
+    SandboxId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    WatchId:
+      name: wid
+      in: path
+      required: true
+      schema: { type: string }
+    ProcessId:
+      name: pid
+      in: path
+      required: true
+      description: The "pid" of a process started in this sandbox.
+      schema: { type: integer, minimum: 1 }
+    SessionId:
+      name: sid
+      in: path
+      required: true
+      schema: { type: string }
+    FilePath:
+      name: path
+      in: path
+      required: true
+      description: >
+        File path under /workspace. It may contain slashes; a client sends them
+        unencoded.
+      schema: { type: string }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >
+        The same key and payload replays the first result. The same key with a
+        different payload answers 409.
+      schema: { type: string }
+  schemas:
+    CreateSandboxRequest:
+      type: object
+      description: template and gpu are mutually exclusive.
+      properties:
+        image: { type: string, example: 'busybox:latest' }
+        template: { type: string, description: Id of a registered template to provision from. }
+        snapshot:
+          type: string
+          description: >
+            Id of a snapshot to start from. It cannot be combined with image,
+            template or gpu. The sandbox gets the metadata and env recorded in
+            the snapshot unless the request gives its own.
+        gpu: { type: string, description: GPU class for a GPU-backed sandbox. }
+        secrets:
+          type: array
+          maxItems: 32
+          items: { type: string }
+          description: >
+            Names of the tenant's secrets. Each command and background process
+            of the sandbox receives them as environment variables of the same
+            name. Code sessions and the terminal do not. A name the tenant has
+            no secret for answers 400.
+        auto_pause_seconds:
+          type: integer
+          minimum: 10
+          maximum: 86400
+          description: >
+            Pause the sandbox after this many seconds without a request that
+            uses it, and resume it on the next one. A paused sandbox holds no
+            memory or CPU, and its processes continue where they stopped. Reading
+            the sandbox, its logs or its metrics does not count as use. Needs
+            the capability "pause"; a runtime without it answers 400.
+        ttl_seconds:
+          type: integer
+          format: int64
+          example: 300
+          description: Lifetime in seconds. Defaults to 300 and is capped at 3600.
+        metadata:
+          type: object
+          maxProperties: 32
+          additionalProperties: { type: string, maxLength: 256 }
+          description: >
+            Labels returned as given and usable as list filters. A key has 1 to 64
+            characters of letters, digits, ".", "_", "/" or "-", and starts with a
+            letter or digit. Labels cannot be changed after creation.
+        env:
+          type: object
+          maxProperties: 64
+          additionalProperties: { type: string, maxLength: 4096 }
+          description: >
+            Default environment of every command run through the executions
+            routes. A variable sent with an execution wins over one of the same
+            name here. Code sessions and terminals do not receive it.
+    FileInfo:
+      type: object
+      required: [name, path, size, is_dir, mode, modified_at]
+      properties:
+        name: { type: string, example: report.txt }
+        path: { type: string, example: /workspace/final/report.txt }
+        size: { type: integer, format: int64, description: Bytes. 0 for a directory. }
+        is_dir: { type: boolean }
+        mode: { type: string, example: '0644', description: Permission bits in octal. }
+        modified_at: { type: string, format: date-time }
+    Scope:
+      type: string
+      enum: ['sandbox:execute', 'api_keys:manage']
+    ApiKey:
+      type: object
+      required: [id, name, prefix, scopes, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        prefix:
+          type: string
+          description: Display label derived from the hash of the key. It is not part of the secret.
+        scopes:
+          type: array
+          items: { $ref: '#/components/schemas/Scope' }
+        created_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+    SandboxList:
+      type: object
+      required: [sandboxes]
+      properties:
+        sandboxes:
+          type: array
+          items: { $ref: '#/components/schemas/Sandbox' }
+        next_cursor:
+          type: string
+          description: Present when more sandboxes follow this page.
+    Sandbox:
+      type: object
+      required: [id, tenant_id, state, created_at]
+      properties:
+        id: { type: string }
+        tenant_id: { type: string }
+        image: { type: string }
+        gpu: { type: string }
+        state:
+          type: string
+          enum: [pending, running, paused, destroyed]
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        auto_pause_seconds:
+          type: integer
+          description: Present when the sandbox pauses itself after this many idle seconds.
+        secrets:
+          type: array
+          items: { type: string }
+          description: Names of the secrets the sandbox receives. The values are never returned.
+        metadata:
+          type: object
+          additionalProperties: { type: string }
+        env:
+          type: object
+          additionalProperties: { type: string }
+    ExecRequest:
+      type: object
+      required: [cmd]
+      properties:
+        cmd:
+          type: array
+          items: { type: string }
+          example: ['cat', '/workspace/hello.txt']
+        env:
+          type: object
+          additionalProperties: { type: string }
+        workdir: { type: string, description: Directory under /workspace. }
+        timeout_ms: { type: integer, format: int64 }
+    ExecResult:
+      type: object
+      required: [exit_code, stdout, stderr]
+      properties:
+        exit_code: { type: integer }
+        stdout: { type: string }
+        stderr: { type: string }
+    FileEvents:
+      type: object
+      required: [events, next, truncated, closed]
+      properties:
+        events:
+          type: array
+          items:
+            type: object
+            required: [type, is_dir]
+            properties:
+              type:
+                type: string
+                enum: [create, write, remove, rename, chmod, overflow]
+                description: >
+                  A rename is a "rename" of the old path followed by a "create"
+                  of the new one.
+              path: { type: string, description: Absent in an "overflow" event. }
+              is_dir: { type: boolean }
+        next: { type: integer, format: int64, description: Cursor for the following request. }
+        truncated: { type: boolean }
+        closed:
+          type: boolean
+          description: The watch ended, as when its directory was removed, and reports nothing more.
+    Process:
+      type: object
+      required: [pid, cmd, started_at, running, exit_code]
+      properties:
+        pid: { type: integer }
+        cmd:
+          type: array
+          items: { type: string }
+        started_at: { type: string, format: date-time }
+        running: { type: boolean }
+        exit_code:
+          type: integer
+          nullable: true
+          description: >
+            Null while the process runs. A process ended by a signal has 128
+            plus the signal number, so 143 after TERM.
+    ProcessOutput:
+      type: object
+      required: [stdout, stderr, next, truncated, process]
+      properties:
+        stdout: { type: string }
+        stderr: { type: string }
+        next: { type: integer, format: int64, description: Cursor for the following request. }
+        truncated: { type: boolean }
+        process: { $ref: '#/components/schemas/Process' }
+    FileEntry:
+      type: object
+      required: [name, size, is_dir]
+      properties:
+        name: { type: string }
+        size: { type: integer, format: int64, description: Size in bytes. 0 for a directory. }
+        is_dir: { type: boolean }
+    ArtifactUrl:
+      type: object
+      required: [url, expires_in_seconds]
+      properties:
+        url: { type: string }
+        expires_in_seconds: { type: integer }
+    BrowserInput:
+      type: object
+      required: [action]
+      properties:
+        action: { type: string, enum: [click, type, scroll] }
+        x: { type: number, description: Click or scroll position. }
+        y: { type: number }
+        dx: { type: number, description: Scroll delta. }
+        dy: { type: number }
+        text: { type: string, description: Text for the "type" action. }
+    CreateVolumeRequest:
+      type: object
+      required: [sandbox_id, name, size_gb]
+      properties:
+        sandbox_id: { type: string }
+        name: { type: string }
+        size_gb: { type: integer, format: int64, minimum: 1 }
+    Volume:
+      type: object
+      required: [id, name, size_gb, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        size_gb: { type: integer, format: int64 }
+        sandbox_id: { type: string, description: Absent while the volume is detached. }
+        created_at: { type: string, format: date-time }
+    Secret:
+      type: object
+      description: A secret, without its value.
+      required: [name, created_at, updated_at]
+      properties:
+        name: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Snapshot:
+      type: object
+      required: [id, name, sandbox_id, size_bytes, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        sandbox_id: { type: string, description: The sandbox the snapshot was taken from. It may no longer exist. }
+        image: { type: string }
+        size_bytes: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+    Capabilities:
+      type: object
+      required: [driver, capabilities]
+      properties:
+        driver: { type: string, example: container }
+        capabilities:
+          type: array
+          items:
+            type: object
+            required: [name, supported]
+            properties:
+              name:
+                type: string
+                enum: [exec, files, file_ops, file_watch, exec_stream, processes, logs, metrics, sessions, session_stream, pty, fork, pause, snapshots, volumes, browser, template_build]
+              supported: { type: boolean }
+    RegisterTemplateRequest:
+      type: object
+      required: [name, image]
+      properties:
+        name: { type: string }
+        image: { type: string, description: 'Digest-pinned image reference (name@sha256:...).' }
+        version: { type: string }
+        public: { type: boolean }
+    Template:
+      type: object
+      required: [id, name, image, version, public, scan_status]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        image: { type: string }
+        version: { type: string }
+        digest: { type: string }
+        public: { type: boolean }
+        scan_status: { type: string }
+    TemplateListEntry:
+      type: object
+      description: >
+        A built-in template has name, image, description and builtin=true. A
+        registered one has the Template fields.
+      required: [name, image]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        image: { type: string }
+        description: { type: string }
+        builtin: { type: boolean }
+        version: { type: string }
+        digest: { type: string }
+        public: { type: boolean }
+        scan_status: { type: string }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: The credential lacks the scope this route needs (code "forbidden").
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotImplemented:
+      description: The active deployment does not support this capability (code "not_implemented").
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    QuotaExceeded:
+      description: A plan quota was reached (code "quota_exceeded").
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

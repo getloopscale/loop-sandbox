@@ -1,0 +1,20 @@
+image:
+  repository: loopsandbox
+  tag: dev
+  pullPolicy: IfNotPresent
+
+api:
+  replicas: 1
+  port: 8080
+
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  database: loopsandbox
+  user: postgres
+  password: postgres
+
+# NATS JetStream — per-cell worker dispatch queue (M11). Single-node for self-host.
+nats:
+  enabled: true
+  image: nats:2.10-alpine

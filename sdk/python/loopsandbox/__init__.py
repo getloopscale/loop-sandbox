@@ -1,0 +1,98 @@
+"""LoopSandbox Python SDK.
+
+Covers the HTTP API of LoopSandbox: sandboxes, command executions, background
+processes, files, directory watches, code sessions (``run_code`` shares state across
+calls), browser control, fork, pause, volumes, templates and API keys. Zero runtime
+dependencies (stdlib urllib). The HTTP transport is injectable for testing.
+"""
+from __future__ import annotations
+
+from .client import LoopSandbox, Sandbox, SandboxPage, Session
+from .errors import (
+    ConflictError,
+    ForbiddenError,
+    LoopSandboxError,
+    NotFoundError,
+    OperationTimeoutError,
+    PayloadTooLargeError,
+    QuotaExceededError,
+    RateLimitError,
+    ServerError,
+    StreamError,
+    UnauthorizedError,
+    UnsupportedError,
+    ValidationError,
+)
+from .models import (
+    ApiKey,
+    ArtifactUrl,
+    Capabilities,
+    Capability,
+    CellResult,
+    ExecResult,
+    FileEntry,
+    FileEvent,
+    FileEvents,
+    FileInfo,
+    LogEntry,
+    Process,
+    ProcessOutput,
+    SandboxInfo,
+    SandboxLogs,
+    SandboxMetrics,
+    SignedFileUrl,
+    StreamEvent,
+    Template,
+    Secret,
+    Snapshot,
+    Volume,
+    Watch,
+)
+from .transport import Response, StreamResponse, StreamTransport, Transport
+
+__all__ = [
+    "LoopSandbox",
+    "Sandbox",
+    "SandboxPage",
+    "Session",
+    "CellResult",
+    "ExecResult",
+    "StreamEvent",
+    "SandboxInfo",
+    "FileEntry",
+    "FileInfo",
+    "SignedFileUrl",
+    "ArtifactUrl",
+    "Process",
+    "ProcessOutput",
+    "LogEntry",
+    "SandboxLogs",
+    "SandboxMetrics",
+    "Watch",
+    "FileEvent",
+    "FileEvents",
+    "Secret",
+    "Snapshot",
+    "Volume",
+    "ApiKey",
+    "Capability",
+    "Capabilities",
+    "Template",
+    "LoopSandboxError",
+    "ValidationError",
+    "UnauthorizedError",
+    "QuotaExceededError",
+    "ForbiddenError",
+    "NotFoundError",
+    "ConflictError",
+    "PayloadTooLargeError",
+    "RateLimitError",
+    "UnsupportedError",
+    "OperationTimeoutError",
+    "ServerError",
+    "StreamError",
+    "Transport",
+    "StreamTransport",
+    "Response",
+    "StreamResponse",
+]

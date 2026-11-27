@@ -1,0 +1,63 @@
+# LoopSandbox on one machine: the API and PostgreSQL. The API uses the container
+# driver, so every sandbox is a hardened container on this host's Docker daemon,
+# and it runs the TTL and metering loops itself.
+#
+#   docker compose -f deployments/compose/self-host.yml up --build -d
+#
+# docs/guides/self-host.md walks through creating a tenant, an API key and a
+# first sandbox.
+#
+# The API listens on 127.0.0.1:8080. Set LOOPSANDBOX_PORT to use another port, and
+# put a TLS-terminating proxy in front before exposing it beyond this machine.
+name: loopsandbox
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: loopsandbox
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    image: loopsandbox:self-host
+    build:
+      context: ../..
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LOOPSANDBOX_ADDR: ":8080"
+      DATABASE_URL: "postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/loopsandbox?sslmode=disable"
+      LOOPSANDBOX_DRIVER: container
+      LOOPSANDBOX_EMBEDDED_WORKER: "true"
+      # Optional: 64 hexadecimal characters (openssl rand -hex 32) turn on tenant
+      # secrets. The key encrypts them at rest: keep it, or the secrets are lost.
+      LOOPSANDBOX_SECRETS_KEY: "${LOOPSANDBOX_SECRETS_KEY:-}"
+      # Optional: a secret of 32 characters or more turns on signed file URLs.
+      LOOPSANDBOX_URL_SIGNING_KEY: "${LOOPSANDBOX_URL_SIGNING_KEY:-}"
+      LOOPSANDBOX_PUBLIC_URL: "${LOOPSANDBOX_PUBLIC_URL:-}"
+      DOCKER_HOST: "unix:///var/run/docker.sock"
+    # The image runs as a non-root user, and the Docker socket is owned by root.
+    # Access to that socket is already root-equivalent control of this host (see the
+    # volume below), so running this one service as root grants nothing more.
+    user: "0:0"
+    volumes:
+      # WARNING: whoever controls the API controls this host through this socket.
+      # That is acceptable on a machine you own that runs your own code. To run code
+      # you do not trust, use the firecracker driver on a KVM host instead.
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:${LOOPSANDBOX_PORT:-8080}:8080"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

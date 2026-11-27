@@ -1,0 +1,19 @@
+# Trivy vulnerability allowlist — every entry needs a justification + a revisit trigger.
+# The CI supply-chain scan (.github/workflows/supply-chain.yml) reads this file. It is
+# NOT a blanket mute: only the specific CVEs below are accepted, with reasons.
+
+# --- github.com/docker/docker (Moby client) — Docker ENGINE vulnerabilities -------------
+# Present because the container runtime driver (internal/runtime/container) embeds the
+# Moby CLIENT to talk to OUR OWN docker daemon. Accepted because:
+#  1. No fixed Go MODULE version exists yet. Trivy reports "Fixed: 29.3.1", but that is the
+#     Docker ENGINE product version — the `github.com/docker/docker` Go module only tags up
+#     to v28.5.x (bumped to v28.5.2 here, best-effort). There is nothing higher to import.
+#  2. These are daemon/engine vulns (authz-plugin bypass; RCE while the engine processes a
+#     malicious image). Untrusted tenant code never reaches the docker socket — the container
+#     driver is the LOWER-isolation MVP/dev tier; hostile multi-tenant workloads run on
+#     Firecracker microVMs per the security model (CLAUDE.md, TRD §10.3), not this driver.
+# REVISIT when: moby publishes a v29+ Go module tag (bump + drop these), OR the container
+# driver is removed from any untrusted-code path. Owner review target: 2026-10-16.
+CVE-2026-34040
+CVE-2026-41567
+CVE-2026-42306

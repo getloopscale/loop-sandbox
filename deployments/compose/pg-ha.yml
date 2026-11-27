@@ -1,0 +1,73 @@
+# PostgreSQL HA validation topology (M11 B2): a streaming-replication primary + read
+# replica behind a pgbouncer connection pool. Ephemeral — brought up by
+# scripts/validate-pg-ha.sh to produce real replication + pooling evidence, then torn
+# down. NOT a production deployment (single replica, trust auth on a private network).
+services:
+  pg-primary:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: loopsandbox
+      # Ephemeral private validation network → trust auth as the DEFAULT pg_hba rule (so it
+      # is matched first, incl. replication). Documented as NOT production.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - hot_standby=on
+    volumes:
+      - ./pg-primary-init.sh:/docker-entrypoint-initdb.d/10-repl.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d loopsandbox"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  pg-replica:
+    image: postgres:16-alpine
+    depends_on:
+      pg-primary:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: replpass
+    user: postgres
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        DATA=/var/lib/postgresql/data
+        if [ ! -f "$$DATA/standby.signal" ]; then
+          rm -rf "$$DATA"/*
+          until pg_isready -h pg-primary -U postgres; do sleep 1; done
+          pg_basebackup -h pg-primary -U repl -D "$$DATA" -Fp -Xs -P -R
+          chmod 0700 "$$DATA"
+        fi
+        exec postgres -c hot_standby=on
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d loopsandbox"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    depends_on:
+      pg-primary:
+        condition: service_healthy
+    environment:
+      DB_HOST: pg-primary
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: loopsandbox
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "20"
+      AUTH_TYPE: trust
+    ports:
+      - "6432:5432" # host 6432 → pgbouncer (listens on 5432 inside the container)

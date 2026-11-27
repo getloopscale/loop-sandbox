@@ -1,0 +1,37 @@
+# gitsafety configuration: https://github.com/paulohenriquevn/gitsafety
+#
+# Three keys, all optional. The tool works with no file at all; this one only removes
+# noise. Whatever `.gitignore` excludes is already left out of the scan.
+#
+# No entry here ignores a directory of our own code. Each one describes a VALUE, so a
+# production credential in the same file is still reported.
+
+allow:
+  # --- Databases that exist only inside the container network ----------------------
+  #
+  # A host WITHOUT A DOT is a Compose or Kubernetes service name, such as `pgvector`,
+  # `redis` or `localhost`. It is not an internet address, and the credential is valid
+  # only inside that network. An FQDN (`db.production.example.com`) has a dot and IS
+  # still reported: that is the line between the two.
+  - "://[^@\"' ]{1,80}@[A-Za-z0-9_-]{1,60}[:/]"
+  - "://[^@\"' ]{1,80}@[A-Za-z0-9_-]{1,60}$"
+  # Loopback by number, which has dots and so is not covered by the rule above.
+  - "://[^@\"' ]{1,80}@127\\.0\\.0\\.1"
+  - "://[^@\"' ]{1,80}@\\[::1\\]"
+  - "://[^@\"' ]{1,80}@host\\.docker\\.internal"
+
+  # --- Kubernetes internal DNS -----------------------------------------------------
+  #
+  # `.svc.cluster.local` does not resolve outside the cluster. Used by the dev manifests.
+  - "://[^@\"' ]{1,80}@[A-Za-z0-9_.-]{1,80}\\.svc\\.cluster\\.local"
+
+  # --- Hosts reserved for documentation --------------------------------------------
+  #
+  # RFC 2606: `example.com` and `example.org` exist to be used as examples.
+  - "://[^@\"' ]{1,80}@[A-Za-z0-9_.-]{1,40}\\.example\\.(com|org)"
+  - "://[^@\"' ]{1,80}@<host>"
+
+ignore:
+  # Vendored third-party code: we do not write it or fix it, and it carries its own
+  # examples. The only directory ignored in full.
+  - "vendor/**"

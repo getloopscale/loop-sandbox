@@ -1,0 +1,41 @@
+# Control-plane HA validation topology (M11): TWO stateless API replicas behind an nginx
+# load balancer, sharing ONE PostgreSQL (all state in the DB). Proves the control plane is
+# horizontally scalable + survives a replica failure. Ephemeral — brought up by
+# scripts/validate-cp-ha.sh. NOT a production deployment.
+services:
+  pg:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: loopsandbox
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "6433:5432" # host access for seeding a tenant/key via sandboxctl
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d loopsandbox"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api-1: &api
+    image: loopsandbox:ha
+    depends_on:
+      pg:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@pg:5432/loopsandbox?sslmode=disable
+      LOOPSANDBOX_AUTH: standalone
+      LOOPSANDBOX_DRIVER: fake
+      LOOPSANDBOX_ADDR: ":8080"
+
+  api-2:
+    <<: *api
+
+  lb:
+    image: nginx:alpine
+    depends_on: [api-1, api-2]
+    volumes:
+      - ./nginx-lb.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8090:8080"
