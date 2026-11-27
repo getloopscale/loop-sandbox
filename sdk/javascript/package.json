@@ -1,7 +1,7 @@
 {
-  "name": "@loopsandbox/sdk",
+  "name": "loopsandbox",
   "version": "0.6.0",
-  "description": "TypeScript SDK for LoopSandbox — run untrusted code in isolated sandboxes.",
+  "description": "TypeScript SDK for LoopSandbox: run untrusted code in isolated sandboxes.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
