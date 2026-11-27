@@ -10,6 +10,8 @@ import type {
   CursorOptions,
   ListSandboxesOptions,
   LogEntry,
+  NetworkDenial,
+  NetworkPolicy,
   SandboxInfo,
   SandboxLogs,
   SandboxMetrics,
@@ -28,6 +30,27 @@ interface WireSandbox {
   secrets?: string[];
   metadata?: Record<string, string>;
   env?: Record<string, string>;
+  network?: WireNetwork;
+}
+
+interface WireNetwork {
+  allow_out?: string[];
+  deny_out?: string[];
+}
+
+interface WireDenial {
+  time: string;
+  destination: string;
+  host?: string;
+  reason: string;
+}
+
+function toWireNetwork(p: NetworkPolicy): WireNetwork {
+  return { allow_out: p.allowOut ?? [], deny_out: p.denyOut ?? [] };
+}
+
+function fromWireNetwork(w: WireNetwork): NetworkPolicy {
+  return { allowOut: w.allow_out ?? [], denyOut: w.deny_out ?? [] };
 }
 
 function mapInfo(w: WireSandbox): SandboxInfo {
@@ -44,6 +67,7 @@ function mapInfo(w: WireSandbox): SandboxInfo {
   if (w.secrets) info.secrets = w.secrets;
   if (w.metadata) info.metadata = w.metadata;
   if (w.env) info.env = w.env;
+  if (w.network) info.network = fromWireNetwork(w.network);
   return info;
 }
 
@@ -112,6 +136,20 @@ export class Sandbox {
     });
   }
 
+  /** updateNetwork replaces the outbound rules of the sandbox. See Sandboxes.updateNetwork. */
+  async updateNetwork(policy: NetworkPolicy, signal?: AbortSignal): Promise<NetworkPolicy> {
+    const applied = await this.collection.updateNetwork(this.id, policy, signal);
+    const hasRules = (applied.allowOut?.length ?? 0) > 0 || (applied.denyOut?.length ?? 0) > 0;
+    if (hasRules) this.info.network = applied;
+    else delete this.info.network;
+    return applied;
+  }
+
+  /** networkDenials lists the connections the rules refused. See Sandboxes.networkDenials. */
+  networkDenials(limit?: number, signal?: AbortSignal): Promise<NetworkDenial[]> {
+    return this.collection.networkDenials(this.id, limit, signal);
+  }
+
   /** setTimeout makes the sandbox expire ttlSeconds from now. See Sandboxes.setTimeout. */
   setTimeout(ttlSeconds: number, signal?: AbortSignal): Promise<Sandbox> {
     return this.collection.setTimeout(this.id, ttlSeconds, signal);
@@ -163,6 +201,7 @@ export class Sandboxes {
       ttl_seconds: opts.ttlSeconds,
       auto_pause_seconds: opts.autoPauseSeconds,
       secrets: opts.secrets,
+      network: opts.network ? toWireNetwork(opts.network) : undefined,
       metadata: opts.metadata,
       env: opts.env,
     });
@@ -215,6 +254,38 @@ export class Sandboxes {
       path: `/v1/sandboxes/${encodeURIComponent(id)}`,
       retriable: true,
       signal,
+    });
+  }
+
+  /** updateNetwork replaces the outbound rules of a running sandbox and returns
+   *  the rules now in force. They apply to the connections the sandbox makes
+   *  from then on. An empty policy restores the default. */
+  async updateNetwork(id: string, policy: NetworkPolicy, signal?: AbortSignal): Promise<NetworkPolicy> {
+    const w = await this.http.sendJSON<WireNetwork>({
+      method: 'PUT',
+      path: sandboxRoute(id, '/network'),
+      body: JSON.stringify(toWireNetwork(policy)),
+      contentType: 'application/json',
+      retriable: true,
+      signal,
+    });
+    return fromWireNetwork(w);
+  }
+
+  /** networkDenials returns the most recent outbound connections the rules of
+   *  the sandbox refused, oldest first; limit is 1 to 1000 and defaults to 100. */
+  async networkDenials(id: string, limit?: number, signal?: AbortSignal): Promise<NetworkDenial[]> {
+    const query = limit === undefined ? '' : `?limit=${limit}`;
+    const w = await this.http.sendJSON<{ denials: WireDenial[] }>({
+      method: 'GET',
+      path: sandboxRoute(id, '/network/denials') + query,
+      retriable: true,
+      signal,
+    });
+    return w.denials.map((d) => {
+      const denial: NetworkDenial = { time: d.time, destination: d.destination, reason: d.reason };
+      if (d.host) denial.host = d.host;
+      return denial;
     });
   }
 

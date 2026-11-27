@@ -48,6 +48,20 @@ func (s *Store) Save(_ context.Context, sb *domain.Sandbox) error {
 	return nil
 }
 
+// SetSandboxNetwork implements domain.NetworkStore.
+func (s *Store) SetSandboxNetwork(_ context.Context, tenantID, id string, allowOut, denyOut []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sb, ok := s.data[key(tenantID, id)]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	sb.NetworkAllowOut = append([]string(nil), allowOut...)
+	sb.NetworkDenyOut = append([]string(nil), denyOut...)
+	s.data[key(tenantID, id)] = sb
+	return nil
+}
+
 // TouchSandbox implements domain.ActivityStore.
 func (s *Store) TouchSandbox(_ context.Context, tenantID, id string, at time.Time) error {
 	s.mu.Lock()

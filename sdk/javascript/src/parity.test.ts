@@ -17,6 +17,8 @@ const COVERAGE: Record<string, string> = {
   getSandbox: 'client.sandboxes.get',
   destroySandbox: 'client.sandboxes.destroy',
   setSandboxTimeout: 'client.sandboxes.setTimeout',
+  updateSandboxNetwork: 'client.sandboxes.updateNetwork',
+  listNetworkDenials: 'client.sandboxes.networkDenials',
   forkSandbox: 'client.sandboxes.fork',
   pauseSandbox: 'client.sandboxes.pause',
   resumeSandbox: 'client.sandboxes.resume',

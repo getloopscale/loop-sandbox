@@ -63,6 +63,13 @@ if [ "$DRIVER" = "container" ]; then
   # Sandboxes run the agent, which is what code sessions need.
   CGO_ENABLED=0 GOOS=linux go build -o "$BIN/lsb-agent" ./cmd/lsb-agent
   export LOOPSANDBOX_AGENT_BIN="$BIN/lsb-agent"
+  # Sandboxes get a network, so the "network" capability is exercised. Set
+  # LOOPSANDBOX_CONTAINER_NETWORK=off to run the suite on a host without internet.
+  if [ "${LOOPSANDBOX_CONTAINER_NETWORK:-on}" = "off" ]; then
+    unset LOOPSANDBOX_CONTAINER_NETWORK
+  else
+    export LOOPSANDBOX_CONTAINER_NETWORK="${LOOPSANDBOX_CONTAINER_NETWORK:-on}"
+  fi
 fi
 
 echo "==> [3/5] start API (driver=${DRIVER}) on ${BASE_URL}"

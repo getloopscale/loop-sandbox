@@ -464,6 +464,8 @@ func (s *Service) createSandbox(ctx context.Context, actor Actor, image, rootfsI
 		Image:       image,
 		RootfsImage: rootfsImage,
 		GPU:         gpu,
+		AllowOut:    attrs.network.AllowOut,
+		DenyOut:     attrs.network.DenyOut,
 	})
 	rend()
 	if err != nil {

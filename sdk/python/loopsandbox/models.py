@@ -63,6 +63,41 @@ class StreamEvent:
 
 
 @dataclass
+class NetworkPolicy:
+    """The outbound rules of a sandbox.
+
+    With no rules a sandbox reaches the public internet. An entry of allow_out
+    wins over deny_out, so the usual way to restrict a sandbox is
+    deny_out=["0.0.0.0/0"] plus the hosts it needs in allow_out. Private and
+    cloud metadata addresses are always refused.
+    """
+
+    allow_out: list[str] = field(default_factory=list)  # addresses, CIDR ranges, host names, "*.name", "*"
+    deny_out: list[str] = field(default_factory=list)  # addresses and CIDR ranges only
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "NetworkPolicy":
+        return cls(allow_out=list(d.get("allow_out") or []), deny_out=list(d.get("deny_out") or []))
+
+    def to_dict(self) -> dict[str, list[str]]:
+        return {"allow_out": list(self.allow_out), "deny_out": list(self.deny_out)}
+
+
+@dataclass
+class NetworkDenial:
+    """One outbound connection the rules of a sandbox refused."""
+
+    time: str
+    destination: str  # address and port the sandbox tried to reach
+    reason: str
+    host: str = ""  # the name it asked for, when the protocol carried one
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "NetworkDenial":
+        return cls(time=d["time"], destination=d["destination"], reason=d.get("reason", ""), host=d.get("host", ""))
+
+
+@dataclass
 class SandboxInfo:
     id: str
     tenant_id: str = ""
@@ -75,6 +110,7 @@ class SandboxInfo:
     env: dict[str, str] = field(default_factory=dict)
     auto_pause_seconds: int = 0  # 0 when the sandbox does not pause itself
     secrets: list[str] = field(default_factory=list)  # names only
+    network: Optional[NetworkPolicy] = None  # None when the sandbox has the default policy
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "SandboxInfo":
@@ -90,6 +126,7 @@ class SandboxInfo:
             env=dict(d.get("env") or {}),
             auto_pause_seconds=d.get("auto_pause_seconds", 0),
             secrets=list(d.get("secrets") or []),
+            network=NetworkPolicy.from_dict(d["network"]) if d.get("network") else None,
         )
 
 

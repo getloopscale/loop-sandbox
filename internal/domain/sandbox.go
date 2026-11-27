@@ -48,11 +48,15 @@ type Sandbox struct {
 	Env      map[string]string
 	// Secrets are the names of the tenant's secrets the sandbox receives as
 	// environment variables. Names only; set at creation.
-	Secrets   []string
-	State     State
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	ExpiresAt time.Time
+	Secrets []string
+	// NetworkAllowOut and NetworkDenyOut are the sandbox's outbound rules. Both
+	// empty means the default policy of the runtime.
+	NetworkAllowOut []string
+	NetworkDenyOut  []string
+	State           State
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	ExpiresAt       time.Time
 	// AutoPauseAfter, when positive, is how long the sandbox may go without a
 	// request that uses it before the idle loop pauses it. Set at creation.
 	AutoPauseAfter time.Duration

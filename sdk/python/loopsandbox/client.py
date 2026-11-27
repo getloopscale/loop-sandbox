@@ -21,6 +21,8 @@ from .models import (
     FileEntry,
     FileEvents,
     FileInfo,
+    NetworkDenial,
+    NetworkPolicy,
     Process,
     ProcessOutput,
     SandboxInfo,
@@ -175,6 +177,7 @@ class LoopSandbox:
         snapshot: str = "",
         auto_pause_seconds: int = 0,
         secrets: Optional[Sequence[str]] = None,
+        network: Optional[NetworkPolicy] = None,
         gpu: str = "",
         metadata: Optional[Mapping[str, str]] = None,
         env: Optional[Mapping[str, str]] = None,
@@ -191,6 +194,9 @@ class LoopSandbox:
 
         secrets names the tenant's secrets that the commands and background
         processes of the sandbox receive as environment variables.
+
+        network is the sandbox's outbound rules. It needs the capability
+        "network" and cannot be combined with template or snapshot.
 
         With idempotency_key, the same key and arguments replay the first result
         instead of creating a second sandbox.
@@ -210,6 +216,8 @@ class LoopSandbox:
             body["auto_pause_seconds"] = auto_pause_seconds
         if secrets:
             body["secrets"] = list(secrets)
+        if network is not None:
+            body["network"] = network.to_dict()
         if metadata:
             body["metadata"] = dict(metadata)
         if env:
@@ -435,6 +443,29 @@ class Sandbox:
         r = self._c._request("POST", self._path("/timeout"), json_body={"ttl_seconds": ttl_seconds}).json()
         self.info = SandboxInfo.from_dict(r)
         return self.info
+
+    def update_network(
+        self, allow_out: Optional[Sequence[str]] = None, deny_out: Optional[Sequence[str]] = None
+    ) -> NetworkPolicy:
+        """Replace the outbound rules of the running sandbox and return the rules in force.
+
+        They apply to the connections the sandbox makes from then on. Calling it
+        with no argument restores the default policy.
+        """
+        body = {"allow_out": list(allow_out or []), "deny_out": list(deny_out or [])}
+        applied = NetworkPolicy.from_dict(self._c._request("PUT", self._path("/network"), json_body=body).json())
+        if self.info is not None:
+            self.info.network = applied if (applied.allow_out or applied.deny_out) else None
+        return applied
+
+    def network_denials(self, limit: int = 0) -> list[NetworkDenial]:
+        """Return the most recent connections the rules refused, oldest first.
+
+        limit is 1 to 1000; 0 leaves the default of 100 to the server.
+        """
+        query = {"limit": limit} if limit else None
+        r = self._c._request("GET", self._path("/network/denials"), query=query).json()
+        return [NetworkDenial.from_dict(d) for d in r.get("denials") or []]
 
     def fork(self) -> "Sandbox":
         """Clone this running sandbox into a new isolated one."""

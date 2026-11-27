@@ -121,6 +121,9 @@ func (d *Driver) CapabilityEnabled(c runtime.Capability) bool {
 	if c == runtime.CapSessions || c == runtime.CapPTY || c == runtime.CapProcesses || c == runtime.CapFileWatch || c == runtime.CapLogs {
 		return d.agentVolume != ""
 	}
+	if c == runtime.CapNetwork {
+		return d.networkEnabled()
+	}
 	return true
 }
 

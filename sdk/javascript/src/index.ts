@@ -35,6 +35,8 @@ export type {
   SandboxState,
   CreateSandboxOptions,
   ListSandboxesOptions,
+  NetworkDenial,
+  NetworkPolicy,
   SandboxMetrics,
   SandboxLogs,
   LogEntry,

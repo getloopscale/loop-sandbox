@@ -728,9 +728,13 @@ func sessionID(t *testing.T, resp *response) string {
 	return body.SessionID
 }
 
-// Every driver must deny network access to a sandbox created without a policy.
-// The cases read kernel state instead of relying on a tool the image may lack.
+// A driver without the "network" capability must deny network access to every
+// sandbox. The cases read kernel state instead of relying on a tool the image
+// may lack. A driver with the capability is covered by TestNetwork.
 func TestNetworkDeniedByDefault(t *testing.T) {
+	if supported["network"] {
+		t.Skip("the driver gives sandboxes a network; TestNetwork covers what a sandbox without rules can reach")
+	}
 	supported["network_default_deny"] = true
 	capability(t, "network_default_deny", nil, map[string]func(t *testing.T){
 		"the_sandbox_has_no_interface_but_loopback": func(t *testing.T) {
@@ -762,6 +766,145 @@ func TestNetworkDeniedByDefault(t *testing.T) {
 
 			if strings.Contains(res.Stdout, "reached") || !strings.Contains(res.Stdout, "checked") {
 				t.Errorf("output = %q, want no connection to succeed", res.Stdout)
+			}
+		},
+	})
+}
+
+// The "network" capability: a sandbox has a network interface, reaches the public
+// internet unless its rules say otherwise, and never reaches a private address.
+// The cases reach example.com and example.org over HTTP with the wget of the
+// shell image, so the suite needs outbound internet where the driver runs.
+func TestNetwork(t *testing.T) {
+	type denial struct {
+		Destination string `json:"destination"`
+		Host        string `json:"host"`
+		Reason      string `json:"reason"`
+		Time        string `json:"time"`
+	}
+	denials := func(t *testing.T, key, id string) []denial {
+		t.Helper()
+		var body struct {
+			Denials []denial `json:"denials"`
+		}
+		call(t, key, http.MethodGet, "/v1/sandboxes/"+id+"/network/denials", nil).want(t, http.StatusOK, "list denials").json(t, &body)
+		return body.Denials
+	}
+	fetch := func(t *testing.T, id, url string) bool {
+		t.Helper()
+		return sh(t, id, "wget -q -T 15 -O /dev/null "+url).ExitCode == 0
+	}
+	restricted := map[string]any{"network": map[string]any{"allow_out": []string{"example.com"}, "deny_out": []string{"0.0.0.0/0"}}}
+
+	capability(t, "network", func(t *testing.T) *response {
+		sb := newSandbox(t, shellImage)
+		return call(t, apiKey, http.MethodPut, "/v1/sandboxes/"+sb.ID+"/network", map[string]any{})
+	}, map[string]func(t *testing.T){
+		"a_sandbox_without_rules_reaches_the_public_internet": func(t *testing.T) {
+			sb := newSandbox(t, shellImage)
+
+			if !fetch(t, sb.ID, "http://example.com/") {
+				t.Error("a sandbox with the default policy could not fetch http://example.com/")
+			}
+		},
+		"a_sandbox_never_reaches_a_private_or_metadata_address": func(t *testing.T) {
+			sb := newSandbox(t, shellImage)
+
+			for _, url := range []string{"http://169.254.169.254/latest/meta-data/", "http://10.0.0.1/", "http://192.168.0.1/"} {
+				if fetch(t, sb.ID, url) {
+					t.Errorf("%s answered", url)
+				}
+			}
+			got := denials(t, apiKey, sb.ID)
+			seen := map[string]bool{}
+			for _, d := range got {
+				seen[d.Destination] = true
+			}
+			for _, want := range []string{"169.254.169.254:80", "10.0.0.1:80", "192.168.0.1:80"} {
+				if !seen[want] {
+					t.Errorf("no denial recorded for %s: %+v", want, got)
+				}
+			}
+		},
+		"rules_given_at_creation_limit_the_sandbox_to_the_allowed_host": func(t *testing.T) {
+			sb := newSandboxWith(t, restricted)
+
+			if !fetch(t, sb.ID, "http://example.com/") {
+				t.Error("the host in allow_out could not be fetched")
+			}
+			if fetch(t, sb.ID, "http://example.org/") {
+				t.Error("a host outside allow_out was fetched")
+			}
+			got := denials(t, apiKey, sb.ID)
+			if len(got) == 0 || got[len(got)-1].Host != "example.org" || got[len(got)-1].Reason == "" || got[len(got)-1].Time == "" {
+				t.Errorf("denials = %+v, want the last one to name example.org with a reason and a time", got)
+			}
+		},
+		"the_sandbox_reports_its_rules": func(t *testing.T) {
+			sb := newSandboxWith(t, restricted)
+
+			var got struct {
+				Network struct {
+					AllowOut []string `json:"allow_out"`
+					DenyOut  []string `json:"deny_out"`
+				} `json:"network"`
+			}
+			call(t, apiKey, http.MethodGet, "/v1/sandboxes/"+sb.ID, nil).want(t, http.StatusOK, "get sandbox").json(t, &got)
+			if len(got.Network.AllowOut) != 1 || got.Network.AllowOut[0] != "example.com" || len(got.Network.DenyOut) != 1 {
+				t.Errorf("network = %+v", got.Network)
+			}
+		},
+		"new_rules_apply_to_a_running_sandbox": func(t *testing.T) {
+			sb := newSandbox(t, shellImage)
+			if !fetch(t, sb.ID, "http://example.org/") {
+				t.Fatal("before the update, http://example.org/ could not be fetched")
+			}
+
+			call(t, apiKey, http.MethodPut, "/v1/sandboxes/"+sb.ID+"/network", restricted["network"]).want(t, http.StatusOK, "update network")
+
+			// The stored rules follow the update, so a later read agrees with what is enforced.
+			var stored struct {
+				Network struct {
+					AllowOut []string `json:"allow_out"`
+				} `json:"network"`
+			}
+			call(t, apiKey, http.MethodGet, "/v1/sandboxes/"+sb.ID, nil).want(t, http.StatusOK, "get sandbox").json(t, &stored)
+			if len(stored.Network.AllowOut) != 1 || stored.Network.AllowOut[0] != "example.com" {
+				t.Errorf("the sandbox reports %+v after the update", stored.Network)
+			}
+			if fetch(t, sb.ID, "http://example.org/") {
+				t.Error("after the update, a host outside allow_out was fetched")
+			}
+			if !fetch(t, sb.ID, "http://example.com/") {
+				t.Error("after the update, the host in allow_out could not be fetched")
+			}
+
+			call(t, apiKey, http.MethodPut, "/v1/sandboxes/"+sb.ID+"/network", map[string]any{}).want(t, http.StatusOK, "clear network")
+
+			if !fetch(t, sb.ID, "http://example.org/") {
+				t.Error("after the rules were removed, http://example.org/ could not be fetched")
+			}
+		},
+		"invalid_rules_are_refused_and_change_nothing": func(t *testing.T) {
+			sb := newSandboxWith(t, restricted)
+
+			call(t, apiKey, http.MethodPut, "/v1/sandboxes/"+sb.ID+"/network", map[string]any{"deny_out": []string{"example.com"}}).
+				want(t, http.StatusBadRequest, "update with a host name in deny_out")
+			call(t, apiKey, http.MethodPost, "/v1/sandboxes", map[string]any{"image": shellImage, "network": map[string]any{"allow_out": []string{"10.0.0.0/99"}}}).
+				want(t, http.StatusBadRequest, "create with a malformed range")
+
+			if fetch(t, sb.ID, "http://example.org/") {
+				t.Error("the rules in force were lost after a refused update")
+			}
+		},
+		"another_tenant_cannot_read_or_change_the_rules": func(t *testing.T) {
+			sb := newSandboxWith(t, restricted)
+
+			call(t, otherAPIKey, http.MethodPut, "/v1/sandboxes/"+sb.ID+"/network", map[string]any{}).want(t, http.StatusNotFound, "update by another tenant")
+			call(t, otherAPIKey, http.MethodGet, "/v1/sandboxes/"+sb.ID+"/network/denials", nil).want(t, http.StatusNotFound, "denials by another tenant")
+
+			if fetch(t, sb.ID, "http://example.org/") {
+				t.Error("another tenant opened the sandbox's network")
 			}
 		},
 	})

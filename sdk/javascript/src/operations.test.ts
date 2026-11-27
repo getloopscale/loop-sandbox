@@ -131,6 +131,70 @@ describe('sandbox creation options', () => {
   });
 });
 
+describe('sandbox network', () => {
+  it('create sends the rules as allow_out and deny_out and maps them back', async () => {
+    const { fetch, calls } = scriptedFetch([
+      jsonResponse(201, { ...sandboxBody, network: { allow_out: ['pypi.org'], deny_out: ['0.0.0.0/0'] } }),
+    ]);
+
+    const sandbox = await newClient(fetch).sandboxes.create({
+      network: { allowOut: ['pypi.org'], denyOut: ['0.0.0.0/0'] },
+    });
+
+    expect((sentJSON(calls[0]!) as { network: unknown }).network).toEqual({
+      allow_out: ['pypi.org'],
+      deny_out: ['0.0.0.0/0'],
+    });
+    expect(sandbox.info.network).toEqual({ allowOut: ['pypi.org'], denyOut: ['0.0.0.0/0'] });
+  });
+
+  it('create without rules sends no network field', async () => {
+    const { fetch, calls } = scriptedFetch([jsonResponse(201, sandboxBody)]);
+
+    const sandbox = await newClient(fetch).sandboxes.create({ image: 'python' });
+
+    expect(sentJSON(calls[0]!)).not.toHaveProperty('network');
+    expect(sandbox.info.network).toBeUndefined();
+  });
+
+  it('updateNetwork puts both lists and keeps the handle in step', async () => {
+    const { sandbox, calls } = await withSandbox([
+      jsonResponse(200, { allow_out: ['*.example.org'], deny_out: ['0.0.0.0/0'] }),
+      jsonResponse(200, { allow_out: [], deny_out: [] }),
+    ]);
+
+    const applied = await sandbox.updateNetwork({ allowOut: ['*.example.org'], denyOut: ['0.0.0.0/0'] });
+
+    expect(calls[0]!.init.method).toBe('PUT');
+    expect(calls[0]!.url).toBe(`${BASE}/v1/sandboxes/sbx_1/network`);
+    expect(sentJSON(calls[0]!)).toEqual({ allow_out: ['*.example.org'], deny_out: ['0.0.0.0/0'] });
+    expect(applied).toEqual({ allowOut: ['*.example.org'], denyOut: ['0.0.0.0/0'] });
+    expect(sandbox.info.network).toEqual(applied);
+
+    await sandbox.updateNetwork({});
+
+    expect(sentJSON(calls[1]!)).toEqual({ allow_out: [], deny_out: [] });
+    expect(sandbox.info.network).toBeUndefined();
+  });
+
+  it('networkDenials reads the refused connections with an optional limit', async () => {
+    const denial = { time: '2026-11-27T10:00:00Z', destination: '93.184.216.34:443', host: 'example.com', reason: 'denied by deny_out' };
+    const { sandbox, calls } = await withSandbox([
+      jsonResponse(200, { denials: [denial, { time: '2026-11-27T10:00:01Z', destination: '10.0.0.1:80', reason: 'private address' }] }),
+      jsonResponse(200, { denials: [] }),
+    ]);
+
+    const denials = await sandbox.networkDenials();
+
+    expect(calls[0]!.url).toBe(`${BASE}/v1/sandboxes/sbx_1/network/denials`);
+    expect(denials).toEqual([denial, { time: '2026-11-27T10:00:01Z', destination: '10.0.0.1:80', reason: 'private address' }]);
+
+    await sandbox.networkDenials(5);
+
+    expect(calls[1]!.url).toBe(`${BASE}/v1/sandboxes/sbx_1/network/denials?limit=5`);
+  });
+});
+
 describe('sandbox lifecycle', () => {
   it('setTimeout posts ttl_seconds and returns the sandbox with its new expiry', async () => {
     const { sandbox, calls } = await withSandbox([

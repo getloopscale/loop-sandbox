@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/getloopscale/loop-sandbox/internal/clock"
 	"github.com/getloopscale/loop-sandbox/internal/persistence/memory"
 	"github.com/getloopscale/loop-sandbox/internal/ratelimit"
+	"github.com/getloopscale/loop-sandbox/internal/runtime"
 	"github.com/getloopscale/loop-sandbox/internal/runtime/fake"
 )
 
@@ -277,5 +279,37 @@ func TestLogsOfAnUnknownSandboxFail(t *testing.T) {
 
 	if out.code != exitError || !strings.Contains(out.stderr, "404") {
 		t.Errorf("exit %d stderr %q, want 1 and HTTP 404", out.code, out.stderr)
+	}
+}
+
+func TestCreateSendsTheOutboundRulesOfItsFlags(t *testing.T) {
+	h := newHarness(t)
+	h.driver.EnableNetwork()
+
+	id := h.create("--allow-out", "pypi.org", "--allow-out", "files.pythonhosted.org", "--deny-out", "0.0.0.0/0")
+
+	got := h.driver.NetworkPolicy(runtime.SandboxID(id))
+	if !slices.Equal(got.AllowOut, []string{"pypi.org", "files.pythonhosted.org"}) || !slices.Equal(got.DenyOut, []string{"0.0.0.0/0"}) {
+		t.Errorf("the sandbox was created with %+v", got)
+	}
+}
+
+func TestCreateWithoutRuleFlagsSendsNoNetwork(t *testing.T) {
+	// The fake has no network here: a network field in the request would be a 501.
+	h := newHarness(t)
+
+	if out := h.lsb("sandbox", "create"); out.code != 0 {
+		t.Errorf("create exited %d: %s", out.code, out.stderr)
+	}
+}
+
+func TestCreateReportsRulesTheAPIRefuses(t *testing.T) {
+	h := newHarness(t)
+	h.driver.EnableNetwork()
+
+	out := h.lsb("sandbox", "create", "--deny-out", "example.com")
+
+	if out.code == 0 || !strings.Contains(out.stderr, "invalid_request") {
+		t.Errorf("exit %d, stderr %q; want a failure that names invalid_request", out.code, out.stderr)
 	}
 }

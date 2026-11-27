@@ -16,6 +16,34 @@ const ProxyPort uint16 = 15001
 // accepts connections. The driver starts the sandbox only after reading it.
 const ReadyLine = "netguard: ready"
 
+// ControlSocket is the unix socket where the guard takes new rules. It lives in
+// the guard container, which the sandbox cannot enter.
+const ControlSocket = "/run/lsb/netguard.sock"
+
+// RulesRequest replaces the rules of a running guard.
+type RulesRequest struct {
+	AllowOut []string `json:"allow_out"`
+	DenyOut  []string `json:"deny_out"`
+}
+
+// RulesResponse answers a RulesRequest. Error is empty when the rules were applied.
+type RulesResponse struct {
+	Error string `json:"error,omitempty"`
+}
+
+// DenialEvent is the "event" value of the log line the guard writes for each
+// refused connection.
+const DenialEvent = "egress_denied"
+
+// DenialRecord is one refused connection as the guard logs it.
+type DenialRecord struct {
+	Event       string `json:"event"`
+	Time        string `json:"time"` // RFC 3339, UTC
+	Destination string `json:"destination"`
+	Host        string `json:"host,omitempty"`
+	Reason      string `json:"reason"`
+}
+
 // Environment variables the driver uses to configure the guard.
 const (
 	EnvAllowOut = "LSB_NET_ALLOW_OUT" // comma-separated allow_out entries

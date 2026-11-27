@@ -104,6 +104,10 @@ func (d *Driver) CapabilityEnabled(c runtime.Capability) bool {
 		return d.sessionsAllowed()
 	case runtime.CapBrowser:
 		return d.sessionsAllowed() && os.Getenv("LOOPSANDBOX_FAKE_CDP") != ""
+	case runtime.CapNetwork:
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.net.enabled
 	default:
 		return true
 	}

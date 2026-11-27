@@ -19,6 +19,29 @@ export interface SandboxInfo {
   metadata?: Record<string, string>;
   /** Default environment of the commands run in the sandbox. */
   env?: Record<string, string>;
+  /** Outbound rules, present when the sandbox has any. */
+  network?: NetworkPolicy;
+}
+
+/** The outbound rules of a sandbox. With no rules a sandbox reaches the public
+ *  internet. An entry of allowOut wins over denyOut, so the usual way to
+ *  restrict a sandbox is denyOut ['0.0.0.0/0'] plus the hosts it needs in
+ *  allowOut. Private and cloud metadata addresses are always refused. */
+export interface NetworkPolicy {
+  /** Addresses, CIDR ranges, host names, '*.name' for the subdomains of a name, or '*'. */
+  allowOut?: string[];
+  /** Addresses and CIDR ranges. Host names are not accepted here. */
+  denyOut?: string[];
+}
+
+/** One outbound connection the rules of a sandbox refused. */
+export interface NetworkDenial {
+  time: string;
+  /** Address and port the sandbox tried to reach. */
+  destination: string;
+  /** The host name it asked for, when the protocol carried one. */
+  host?: string;
+  reason: string;
 }
 
 /** The lifecycle states of a sandbox. */
@@ -37,6 +60,9 @@ export interface CreateSandboxOptions {
   /** Names of the tenant's secrets. Commands and background processes of the
    *  sandbox receive them as environment variables. */
   secrets?: string[];
+  /** Outbound rules. Needs the capability "network". Cannot be combined with
+   *  template or snapshot. */
+  network?: NetworkPolicy;
   /** Id of a registered template to provision from. Cannot be combined with gpu. */
   template?: string;
   /** Id of a snapshot to start from. Cannot be combined with image, template or gpu. */

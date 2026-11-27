@@ -4,6 +4,7 @@
 // Usage:
 //
 //	lsb sandbox create [--image IMAGE | --template ID] [--ttl 10m] [--env K=V] [--label K=V]
+//	                   [--allow-out HOST] [--deny-out CIDR]
 //	lsb sandbox list [--state STATE] [--json]
 //	lsb sandbox exec [--timeout 30s] SANDBOX -- COMMAND [ARG...]
 //	lsb sandbox connect SANDBOX

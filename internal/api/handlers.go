@@ -56,6 +56,8 @@ type createRequest struct {
 	// every command run in the sandbox.
 	Metadata map[string]string `json:"metadata,omitempty"`
 	Env      map[string]string `json:"env,omitempty"`
+	// Network is the outbound rules. Absent means the default policy.
+	Network *networkBody `json:"network,omitempty"`
 }
 
 type sandboxResponse struct {
@@ -72,6 +74,8 @@ type sandboxResponse struct {
 	// Secrets are the names of the secrets the sandbox receives. Never the values.
 	Secrets []string          `json:"secrets,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	// Network is the outbound rules, present when the sandbox has any.
+	Network *networkBody `json:"network,omitempty"`
 }
 
 type errorBody struct {
@@ -96,6 +100,7 @@ func toResponse(s *domain.Sandbox) sandboxResponse {
 		Metadata:         s.Metadata,
 		Secrets:          s.Secrets,
 		Env:              s.Env,
+		Network:          networkOf(s),
 	}
 }
 
@@ -193,6 +198,7 @@ func (h *Handler) CreateSandbox(w http.ResponseWriter, r *http.Request) {
 		TTL:       time.Duration(req.TTLSeconds) * time.Second,
 		Metadata:  req.Metadata,
 		Env:       req.Env,
+		Network:   req.Network.policy(),
 	})
 	if err != nil {
 		if useIdem {
@@ -332,6 +338,10 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotImplemented, "not_implemented", "sandbox logs are not supported by this runtime")
 	case errors.Is(err, app.ErrMetricsUnsupported):
 		writeError(w, http.StatusNotImplemented, "not_implemented", "sandbox metrics are not supported by this runtime")
+	case errors.Is(err, app.ErrNetworkUnsupported):
+		writeError(w, http.StatusNotImplemented, "not_implemented", "sandbox networks are not supported by this runtime")
+	case errors.Is(err, app.ErrSandboxHasNoNetwork):
+		writeError(w, http.StatusConflict, "no_network", "the sandbox has no network")
 	case errors.Is(err, app.ErrFileWatchUnsupported):
 		writeError(w, http.StatusNotImplemented, "not_implemented", "directory watches are not supported by this runtime")
 	case errors.Is(err, app.ErrTooManyWatches):

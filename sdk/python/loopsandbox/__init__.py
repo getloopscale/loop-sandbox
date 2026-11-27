@@ -35,6 +35,8 @@ from .models import (
     FileEvents,
     FileInfo,
     LogEntry,
+    NetworkDenial,
+    NetworkPolicy,
     Process,
     ProcessOutput,
     SandboxInfo,

@@ -25,13 +25,14 @@ const (
 	CapVolumes       Capability = "volumes"
 	CapBrowser       Capability = "browser"
 	CapTemplateBuild Capability = "template_build"
+	CapNetwork       Capability = "network"
 )
 
 // AllCapabilities returns every known capability in a stable order.
 func AllCapabilities() []Capability {
 	return []Capability{
 		CapExec, CapFiles, CapFileOps, CapFileWatch, CapExecStream, CapProcesses, CapLogs, CapMetrics, CapSessions, CapSessionStream, CapPTY,
-		CapFork, CapPause, CapSnapshots, CapVolumes, CapBrowser, CapTemplateBuild,
+		CapFork, CapPause, CapSnapshots, CapVolumes, CapBrowser, CapTemplateBuild, CapNetwork,
 	}
 }
 
@@ -91,6 +92,8 @@ func implements(d Driver, c Capability) bool {
 		_, ok = d.(BrowserDriver)
 	case CapTemplateBuild:
 		_, ok = d.(TemplateBuilder)
+	case CapNetwork:
+		_, ok = d.(NetworkDriver)
 	}
 	return ok
 }

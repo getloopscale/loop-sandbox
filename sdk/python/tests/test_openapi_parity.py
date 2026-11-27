@@ -20,6 +20,8 @@ COVERAGE = {
     "getSandbox": "LoopSandbox.get_sandbox",
     "destroySandbox": "Sandbox.destroy",
     "setSandboxTimeout": "Sandbox.set_timeout",
+    "updateSandboxNetwork": "Sandbox.update_network",
+    "listNetworkDenials": "Sandbox.network_denials",
     "forkSandbox": "Sandbox.fork",
     "pauseSandbox": "Sandbox.pause",
     "resumeSandbox": "Sandbox.resume",
