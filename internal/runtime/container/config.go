@@ -42,6 +42,9 @@ type Spec struct {
 	GPU             string // M19: non-empty → request NVIDIA GPU passthrough (--gpus all)
 	AgentVolume     string // non-empty → the sandbox runs lsb-agent from this volume
 	Instance        string // non-empty → the deployment the container belongs to
+	// NetworkContainer, when non-empty, is the ID of the sandbox's network guard:
+	// the sandbox joins its network namespace. Empty means no network at all.
+	NetworkContainer string
 }
 
 // hardenedConfig builds the container + host config implementing TRD §10.3:
@@ -114,6 +117,12 @@ func hardenedConfig(spec Spec) (*dcontainer.Config, *dcontainer.HostConfig) {
 	}
 	if pids > 0 {
 		host.PidsLimit = &pids
+	}
+	if spec.NetworkContainer != "" {
+		// The namespace belongs to the guard, whose firewall sends every connection
+		// to the egress proxy. The sandbox keeps no capability, so it cannot change it.
+		cfg.NetworkDisabled = false
+		host.NetworkMode = dcontainer.NetworkMode("container:" + spec.NetworkContainer)
 	}
 	if spec.AgentVolume != "" {
 		// The agent is the sandbox's first process: an init that reaps orphans and a

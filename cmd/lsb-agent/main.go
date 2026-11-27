@@ -47,6 +47,9 @@ func main() {
 	if mode == modeConnect {
 		runConnect(os.Args[2:]) // never returns
 	}
+	if mode == modeNetguard {
+		runNetguard() // never returns
+	}
 	if os.Getpid() == 1 {
 		if mode == "" {
 			// The microVM guest: nothing is mounted yet.
