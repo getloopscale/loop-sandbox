@@ -72,6 +72,7 @@ All notable changes to this project are recorded in this file. The format follow
 - The SBOM files kept in the repository (`sbom/` and `docs/supply-chain/sbom.cdx.json`). They listed a dependency the module no longer has. `make sbom` generates them, and the `supply-chain` workflow attaches one to each published image.
 
 ### Fixed
+- `container` driver: a sandbox starts on a host that runs other processes as the sandbox's user, such as a node shared with pods. The sandbox carried an `nproc` ulimit, which the kernel counts over every thread of that user on the whole host, so past 256 of them the agent could not be executed and the sandbox exited at once. The limit is gone; the pids limit of the container's cgroup still bounds its processes. (#21)
 - `container` driver: `pip install <package>` with no option now works in a sandbox, and a package with native code loads. The sandbox user had no writable home, so pip had nowhere to install, and `/workspace` was mounted without `exec`, so a library such as numpy could not be loaded from it. `HOME` is now `/workspace`. (#20)
 
 - Two deployments that shared a Docker host destroyed each other's sandboxes: the orphan reaper of the `container` driver listed every managed container on the host and removed those without a record in its own database. Each database now has a random deployment id, new containers carry it as the label `loopsandbox.instance`, and the reaper only looks at containers of its own deployment. Containers created before the upgrade have no label and are no longer reaped as orphans. (#1)

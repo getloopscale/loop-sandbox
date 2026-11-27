@@ -193,3 +193,39 @@ func TestClosingThePTYEndsItsShell(t *testing.T) {
 		t.Errorf("processes running sleep 4242 after the close = %q, want 0", got)
 	}
 }
+
+// A host that runs other workloads as the same unprivileged user, as a node shared
+// with pods does. RLIMIT_NPROC counts every thread of a user id on the whole host, so a
+// sandbox that carried one could not start its agent there: exec failed with EAGAIN.
+func TestSandboxStartsOnAHostWhereItsUserAlreadyRunsManyProcesses(t *testing.T) {
+	const crowd = "lsb-test-crowd"
+	_ = exec.Command("docker", "rm", "-f", crowd).Run()
+	out, err := exec.Command("docker", "run", "-d", "--rm", "--name", crowd, "--user", "65534:65534", "--pids-limit", "1024",
+		"busybox:latest", "sh", "-c", "i=0; while [ $i -lt 600 ]; do sleep 600 & i=$((i+1)); done; wait").CombinedOutput()
+	if err != nil {
+		t.Fatalf("start the crowd of processes: %v\n%s", err, out)
+	}
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", crowd).Run() })
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		top, _ := exec.Command("docker", "top", crowd).Output()
+		if strings.Count(string(top), "sleep 600") >= 600 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the crowd never reached 600 processes:\n%s", top)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	d := newAgentDriver(t)
+	id := agentSandbox(t, d, pythonImage)
+
+	res, err := d.Exec(context.Background(), id, runtime.ExecRequest{Cmd: []string{"echo", "started"}, Timeout: 20 * time.Second})
+	if err != nil {
+		t.Fatalf("exec in the sandbox: %v", err)
+	}
+	if res.ExitCode != 0 || strings.TrimSpace(string(res.Stdout)) != "started" {
+		t.Fatalf("exec in the sandbox: exit %d, %q%q", res.ExitCode, res.Stdout, res.Stderr)
+	}
+}
