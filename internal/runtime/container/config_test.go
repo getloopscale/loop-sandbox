@@ -56,6 +56,12 @@ func TestHardenedConfig_applies_trd_10_3_profile(t *testing.T) {
 		t.Errorf("/tmp tmpfs = %q, want noexec,nosuid,nodev", tmp)
 	}
 	ws := host.Tmpfs["/workspace"]
+	if !strings.Contains(","+ws+",", ",exec,") {
+		t.Errorf("/workspace tmpfs = %q, want exec spelled out: Docker mounts a tmpfs noexec by default", ws)
+	}
+	if !slices.Contains(cfg.Env, "HOME=/workspace") {
+		t.Errorf("env = %v, want HOME=/workspace: the image's home is on the read-only root", cfg.Env)
+	}
 	if strings.Contains(ws, "noexec") {
 		t.Errorf("/workspace tmpfs = %q, must NOT be noexec (it runs user code)", ws)
 	}

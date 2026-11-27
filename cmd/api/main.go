@@ -348,6 +348,7 @@ func connectWithRetry(ctx context.Context, dsn string, attempts int, delay time.
 // buildAuthMiddleware selects the auth gate for sandbox routes. "standalone" (M1)
 // authenticates a lsb_ API key; "loopscale" (M7) verifies an Ed25519-signed edge forward
 // + a LoopScale JWT (tenant_id + scope) via LoopScale contracts, fail-closed.
+// "gateway" verifies the signed forward alone: the gateway authenticated the caller.
 func buildAuthMiddleware(mode string, store *postgres.Store, logger *slog.Logger) (api.Middleware, error) {
 	switch mode {
 	case "standalone":
@@ -374,8 +375,24 @@ func buildAuthMiddleware(mode string, store *postgres.Store, logger *slog.Logger
 		verifier := lsauth.NewForwardAuthVerifier(keys, tolerance, nonces)
 		fa := lsauth.NewForwardAuthenticator(verifier, validator, "sandbox:execute")
 		return fa.Middleware, nil
+	case "gateway":
+		keys, err := parseEd25519Keys(os.Getenv("LOOPSANDBOX_GATEWAY_PUBKEYS"))
+		if err != nil {
+			return nil, fmt.Errorf("LOOPSANDBOX_GATEWAY_PUBKEYS: %w", err)
+		}
+		tenantPlan := domain.Plan(envOr("LOOPSANDBOX_GATEWAY_TENANT_PLAN", string(domain.PlanStarter)))
+		if !domain.ValidPlan(tenantPlan) {
+			return nil, fmt.Errorf("LOOPSANDBOX_GATEWAY_TENANT_PLAN=%q: want starter, pro or team", tenantPlan)
+		}
+		const tolerance = 30 * time.Second
+		nonces, nErr := buildNonceStore(10*tolerance, logger)
+		if nErr != nil {
+			return nil, nErr
+		}
+		verifier := lsauth.NewForwardAuthVerifier(keys, tolerance, nonces)
+		return lsauth.NewGatewayAuthenticator(verifier, store, tenantPlan, []string{domain.ScopeSandboxExecute}).Middleware, nil
 	default:
-		return nil, fmt.Errorf("unknown auth mode %q (want standalone|loopscale)", mode)
+		return nil, fmt.Errorf("unknown auth mode %q (want standalone|loopscale|gateway)", mode)
 	}
 }
 
