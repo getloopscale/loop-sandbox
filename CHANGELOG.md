@@ -88,6 +88,7 @@ All notable changes to this project are recorded in this file. The format follow
 
 ### Security
 
+- The image is built with Go 1.26.11, and `golang.org/x/net`, `golang.org/x/crypto`, `golang.org/x/text`, `google.golang.org/grpc` and `github.com/klauspost/compress` are updated. The image scan had reported 23 high-severity advisories in the `api` binary, among them CVE-2026-111943 in `crypto/x509` and CVE-2026-84304 in gRPC.
 - On the `container` driver, a file route followed a symbolic link out of `/workspace`. Every file route now answers 400 for a path that resolves outside the workspace, as the `firecracker` driver already did.
 - A forked, resumed or warm-pool Firecracker sandbox gets a block device of its own for the volume slot, so no two sandboxes share a writable device.
 - GitHub Actions in the supply-chain workflow are pinned to commit SHAs, and its write permissions are scoped to the one job that publishes.
