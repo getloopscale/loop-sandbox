@@ -116,9 +116,12 @@ func hardenedConfig(spec Spec) (*dcontainer.Config, *dcontainer.HostConfig) {
 		Resources: dcontainer.Resources{
 			NanoCPUs: spec.CPUNanos,
 			Memory:   spec.MemoryBytes,
+			// No nproc ulimit: RLIMIT_NPROC counts the threads of a user id on the
+			// whole host, not in the container, so on a host that runs anything else
+			// as that user the sandbox could not exec at all. PidsLimit below bounds
+			// the processes of this container alone.
 			Ulimits: []*units.Ulimit{
 				{Name: "nofile", Soft: 1024, Hard: 4096},
-				{Name: "nproc", Soft: 256, Hard: 512},
 			},
 		},
 	}

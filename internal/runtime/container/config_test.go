@@ -74,8 +74,13 @@ func TestHardenedConfig_applies_trd_10_3_profile(t *testing.T) {
 	if host.PidsLimit == nil || *host.PidsLimit != 128 {
 		t.Errorf("PidsLimit = %v, want 128", host.PidsLimit)
 	}
+	for _, limit := range host.Ulimits {
+		if limit.Name == "nproc" {
+			t.Error("nproc ulimit set: it counts the user's threads on the whole host; PidsLimit bounds the container")
+		}
+	}
 	if len(host.Ulimits) == 0 {
-		t.Error("Ulimits must be set (nofile/nproc — TRD §10.3)")
+		t.Error("Ulimits must be set (nofile)")
 	}
 }
 
