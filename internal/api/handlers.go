@@ -301,6 +301,7 @@ func writeDomainError(w http.ResponseWriter, err error) {
 	var exceeded *plan.ExceededError
 	var invalid *domain.ValidationError
 	var secretGone *app.SecretUnavailableError
+	var liveLimit *app.LiveSandboxLimitError
 	switch {
 	case errors.As(err, &invalid):
 		// A validation message is written for the caller and names the field.
@@ -310,6 +311,8 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusPaymentRequired, "quota_exceeded",
 			fmt.Sprintf("plan %s cap for %s reached (%d/%d, period %s)",
 				exceeded.Plan, exceeded.Metric, exceeded.Current, exceeded.Cap, exceeded.Period))
+	case errors.As(err, &liveLimit):
+		writeError(w, http.StatusTooManyRequests, "live_sandbox_limit", liveLimit.Error())
 	case errors.As(err, &secretGone):
 		writeError(w, http.StatusConflict, "secret_unavailable", secretGone.Error())
 	case errors.Is(err, app.ErrSecretsUnsupported):

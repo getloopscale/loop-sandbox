@@ -95,15 +95,17 @@ var ErrArtifactStoreUnset = errors.New("artifact store not configured")
 
 // Service is the sandbox use-case orchestrator.
 type Service struct {
-	repo      domain.Repository
-	driver    runtime.Driver
-	clock     clock.Clock
-	ids       IDGen
-	audit     AuditRecorder
-	cost      domain.CostStore
-	execs     domain.ExecutionStore // optional (nil-safe): persists executions
-	obs       Observer
-	quota     QuotaEnforcer        // optional (nil-safe): plan cap enforcement
+	repo   domain.Repository
+	driver runtime.Driver
+	clock  clock.Clock
+	ids    IDGen
+	audit  AuditRecorder
+	cost   domain.CostStore
+	execs  domain.ExecutionStore // optional (nil-safe): persists executions
+	obs    Observer
+	quota  QuotaEnforcer // optional (nil-safe): plan cap enforcement
+	// liveLimit caps the live sandboxes of one tenant; zero means no cap.
+	liveLimit int
 	plans     PlanResolver         // optional (nil-safe): tenant → plan lookup
 	router    CellRouter           // optional (nil-safe): tenant → cell routing (M11)
 	files     ArtifactStore        // optional (nil-safe): pre-signed artifact URLs (M11)
@@ -436,6 +438,11 @@ func (s *Service) createSandbox(ctx context.Context, actor Actor, image, rootfsI
 			return nil, err
 		}
 	}
+	releaseSlot, err := s.reserveLiveSlot(ctx, actor.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { releaseSlot() }()
 	sb, err := domain.NewSandbox(s.ids.New(), actor.TenantID, image, clampTTL(ttl), now)
 	if err != nil {
 		return nil, err
@@ -456,6 +463,9 @@ func (s *Service) createSandbox(ctx context.Context, actor Actor, image, rootfsI
 	if err := s.saveTraced(ctx, sb, "persist pending sandbox"); err != nil {
 		return nil, err
 	}
+	// The pending record now holds the slot.
+	releaseSlot()
+	releaseSlot = func() {}
 	createStart := s.clock.Now()
 	rctx, rend := tracing.Child(ctx, "runtime.create")
 	_, err = s.driver.Create(rctx, runtime.CreateRequest{

@@ -108,6 +108,11 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '402': { $ref: '#/components/responses/QuotaExceeded' }
         '409': { $ref: '#/components/responses/Error' }
+        '429':
+          description: The tenant already holds as many live sandboxes as the deployment allows (code `live_sandbox_limit`), or the API key went over its request rate (code `rate_limited`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /v1/sandboxes/{id}:
     parameters:
       - $ref: '#/components/parameters/SandboxId'

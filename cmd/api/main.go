@@ -158,6 +158,11 @@ func run(logger *slog.Logger) error {
 	// gated on a trivy vulnerability scan (private templates register unscanned). Digest-pinning
 	// is enforced in the use case.
 	svc.SetTemplateRegistry(store, scan.NewTrivy(os.Getenv("LOOPSANDBOX_TRIVY_BIN")))
+	liveLimit, err := liveSandboxLimit()
+	if err != nil {
+		return err
+	}
+	svc.SetLiveSandboxLimit(liveLimit)
 	// Lifecycle webhooks (M20 agent-native DX): opt-in via LOOPSANDBOX_WEBHOOK_URL. When set,
 	// sandbox created/exec/destroyed events are POSTed to it (best-effort, async, egress-guarded).
 	if hook := webhook.NewHTTP(os.Getenv("LOOPSANDBOX_WEBHOOK_URL")); hook != nil {
@@ -513,6 +518,24 @@ const (
 	defaultRateLimitRPS   = 100
 	defaultRateLimitBurst = 200
 )
+
+// defaultLiveSandboxLimit is how many live sandboxes one tenant may hold when the
+// deployment does not say.
+const defaultLiveSandboxLimit = 20
+
+// liveSandboxLimit reads the per-tenant cap of live sandboxes from the
+// environment. Zero removes the cap.
+func liveSandboxLimit() (int, error) {
+	raw := os.Getenv("LOOPSANDBOX_MAX_LIVE_SANDBOXES_PER_TENANT")
+	if raw == "" {
+		return defaultLiveSandboxLimit, nil
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		return 0, fmt.Errorf("LOOPSANDBOX_MAX_LIVE_SANDBOXES_PER_TENANT=%q: must be an integer, 0 or more", raw)
+	}
+	return v, nil
+}
 
 // buildRateLimiter reads the per-key request limit from the environment. A rate
 // of 0 turns the limit off. The buckets live in this process, so each replica
