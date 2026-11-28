@@ -22,7 +22,29 @@ func Official() []Template {
 		// M17 official starters — purpose-built envs an agent provisions in one call.
 		{Name: "python-data", Image: "jupyter/scipy-notebook:latest", Description: "Python data stack (numpy, pandas, scipy, matplotlib) for data-analysis agents."},
 		{Name: "browser", Image: "browserless/chrome:latest", Description: "Headless Chromium for browser/computer-use agents (M18)."},
+		// Built by this repository (templates/Dockerfile, published by the templates
+		// workflow). The names are the ones of the e2b templates, so a script that
+		// creates a sandbox from one of them keeps its argument.
+		{Name: "base", Image: built("base"), Description: "Debian with Node.js 22, Python 3, pip, git, curl, jq and ripgrep."},
+		{Name: "claude", Image: built("claude"), Description: "The base template with the Claude Code CLI (claude)."},
+		{Name: "codex", Image: built("codex"), Description: "The base template with the OpenAI Codex CLI (codex)."},
+		{Name: "gemini", Image: built("gemini"), Description: "The base template with the Gemini CLI (gemini)."},
+		{Name: "opencode", Image: built("opencode"), Description: "The base template with the OpenCode CLI (opencode)."},
+		{Name: "openclaw", Image: built("openclaw"), Description: "The base template with the OpenClaw CLI (openclaw)."},
+		{Name: "droid", Image: built("droid"), Description: "The base template with the Factory CLI (droid)."},
+		{Name: "amp", Image: built("amp"), Description: "The base template with the Amp CLI (amp)."},
+		{Name: "desktop", Image: built("desktop"), Description: "The base template with an Xfce desktop on a virtual display: run start-desktop, then scrot and xdotool."},
 	}
+}
+
+// builtVersion is the TEMPLATES_VERSION of .github/workflows/templates.yml: the
+// version of the images this repository builds. A published tag is never
+// overwritten, so a change to templates/ raises both.
+const builtVersion = "2026.11.28"
+
+// built names the image of a template this repository builds.
+func built(name string) string {
+	return "ghcr.io/getloopscale/loop-sandbox:template-" + name + "-" + builtVersion
 }
 
 // Images returns the image refs of the official catalog (for the driver allow-list).

@@ -118,6 +118,31 @@ With the `container` driver a sandbox can only use an image from the built-in te
 `busybox:latest`, `python:3.12-slim`, `node:20-slim`, `jupyter/scipy-notebook:latest` and
 `browserless/chrome:latest`. `GET /v1/templates` returns the list.
 
+The catalog also has templates whose images this repository builds, in `templates/Dockerfile`. Their
+names are the ones of the e2b templates:
+
+| Template | What it has |
+|---|---|
+| `base` | Debian with Node.js 22, Python 3, pip, git, curl, jq and ripgrep |
+| `claude` | `base` with the Claude Code CLI, `claude` |
+| `codex` | `base` with the OpenAI Codex CLI, `codex` |
+| `gemini` | `base` with the Gemini CLI, `gemini` |
+| `opencode` | `base` with the OpenCode CLI, `opencode` |
+| `openclaw` | `base` with the OpenClaw CLI, `openclaw` |
+| `droid` | `base` with the Factory CLI, `droid` |
+| `amp` | `base` with the Amp CLI, `amp` |
+| `desktop` | `base` with an Xfce desktop on a virtual display |
+
+Each agent CLI is installed at an exact version and takes its credential from the environment of the
+sandbox, for example from a secret. In `desktop`, `start-desktop` brings the display up; `scrot`
+takes a screenshot and `xdotool` sends input. The screen cannot be watched live, because a sandbox
+exposes no port.
+
+The `templates` workflow builds each image, runs it with the restrictions of a sandbox, and on
+`develop` publishes it as `ghcr.io/getloopscale/loop-sandbox:template-<name>-<version>`. A published
+tag is never overwritten: a change to `templates/` raises `TEMPLATES_VERSION` in the workflow and
+`builtVersion` in `internal/templates/catalog.go`, and a test keeps the two equal.
+
 ## API
 
 Every `/v1` route except the health checks requires `Authorization: Bearer <api key>`.
