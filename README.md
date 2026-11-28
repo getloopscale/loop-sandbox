@@ -190,8 +190,9 @@ What differs from e2b:
 - Files live under `/workspace`, which is also where a command starts. A relative path resolves
   against it. A path outside it, such as `/home/user/a.txt`, is refused with `InvalidArgumentError`.
 - A command line runs through `/bin/sh -c`, because not every image ships bash.
-- The first argument of `Sandbox.create` is an image when it has a `:` or a `/`, and the name of a
-  template otherwise.
+- The first argument of `Sandbox.create` is an image when it has a `:` or a `/`, and a template
+  otherwise: the name of a built-in one (`Sandbox.create('python')`), or the name or id of one you
+  registered.
 - `getMetrics` answers one sample, the current one, with `memUsed`, `memTotal`, `cpuUsageNs`, `diskUsed`
   and `diskTotal`. The disk figures are absent for a paused sandbox.
 - `Sandbox.connect` resumes a paused sandbox. A terminal pid names a terminal opened by the same

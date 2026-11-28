@@ -1601,7 +1601,13 @@ components:
       description: template and gpu are mutually exclusive.
       properties:
         image: { type: string, example: 'busybox:latest' }
-        template: { type: string, description: Id of a registered template to provision from. }
+        template:
+          type: string
+          description: >
+            What to provision from: the id of a template the tenant can see,
+            the name of one the tenant registered, or the name of a built-in
+            one such as python. An id wins over a name, and a registered name
+            over a built-in one.
         snapshot:
           type: string
           description: >

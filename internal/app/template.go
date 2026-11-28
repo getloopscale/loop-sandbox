@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"github.com/getloopscale/loop-sandbox/internal/templates"
 	"strings"
 	"time"
 
@@ -108,10 +109,7 @@ func (s *Service) CreateSandboxFromTemplate(ctx context.Context, actor Actor, te
 }
 
 func (s *Service) createFromTemplate(ctx context.Context, actor Actor, templateID string, ttl time.Duration, attrs sandboxAttributes) (*domain.Sandbox, error) {
-	if s.tmpls == nil {
-		return nil, ErrTemplatesUnsupported
-	}
-	t, err := s.tmpls.GetTemplate(ctx, actor.TenantID, templateID)
+	t, err := s.resolveTemplate(ctx, actor, templateID)
 	if err != nil {
 		return nil, err // ErrNotFound for unknown / not-visible
 	}
@@ -123,6 +121,41 @@ func (s *Service) createFromTemplate(ctx context.Context, actor Actor, templateI
 		return s.createSandbox(ctx, actor, "", path, "", ttl, attrs)
 	}
 	return s.createSandbox(ctx, actor, t.ImageRef, "", "", ttl, attrs)
+}
+
+// resolveTemplate finds what a create request named: the id of a template the
+// tenant can see, then the name of one the tenant registered, then the name of
+// a built-in one. A name never reaches another tenant's template, public or
+// not: two tenants may use the same name, and only an id says which is meant.
+func (s *Service) resolveTemplate(ctx context.Context, actor Actor, ref string) (*domain.Template, error) {
+	if s.tmpls != nil {
+		t, err := s.tmpls.GetTemplate(ctx, actor.TenantID, ref)
+		if err == nil || !errors.Is(err, domain.ErrNotFound) {
+			return t, err
+		}
+		visible, err := s.tmpls.ListTemplates(ctx, actor.TenantID)
+		if err != nil {
+			return nil, err
+		}
+		var named *domain.Template
+		for _, candidate := range visible {
+			if candidate.TenantID == actor.TenantID && candidate.Name == ref && (named == nil || candidate.CreatedAt.After(named.CreatedAt)) {
+				named = candidate
+			}
+		}
+		if named != nil {
+			return named, nil
+		}
+	}
+	for _, builtin := range templates.Official() {
+		if builtin.Name == ref {
+			return &domain.Template{Name: builtin.Name, ImageRef: builtin.Image}, nil
+		}
+	}
+	if s.tmpls == nil {
+		return nil, ErrTemplatesUnsupported
+	}
+	return nil, domain.ErrNotFound
 }
 
 // builtRootfsPath returns the local rootfs path of a built-template ref (…/x.ext4[@sha256:…]),
