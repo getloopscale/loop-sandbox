@@ -55,6 +55,8 @@ type sandboxMetricsResponse struct {
 	CPUUsageNanos    uint64 `json:"cpu_usage_ns"`
 	MemoryUsedBytes  uint64 `json:"memory_used_bytes"`
 	MemoryLimitBytes uint64 `json:"memory_limit_bytes"`
+	DiskUsedBytes    uint64 `json:"disk_used_bytes,omitempty"`
+	DiskLimitBytes   uint64 `json:"disk_limit_bytes,omitempty"`
 	At               string `json:"at"`
 }
 
@@ -72,5 +74,6 @@ func (h *Handler) SandboxMetrics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sandboxMetricsResponse{
 		CPUUsageNanos: m.CPUUsageNanos, MemoryUsedBytes: m.MemoryUsedBytes,
 		MemoryLimitBytes: m.MemoryLimitBytes, At: m.At.Format(time.RFC3339Nano),
+		DiskUsedBytes: m.DiskUsedBytes, DiskLimitBytes: m.DiskLimitBytes,
 	})
 }

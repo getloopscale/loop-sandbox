@@ -131,6 +131,18 @@ def test_get_info_uses_the_field_names_of_e2b(api):
     assert info.end_at.isoformat() == "2026-11-28T10:05:00+00:00"
 
 
+def test_get_metrics_carries_the_use_of_the_workspace_when_the_api_reports_it(api):
+    sample = {"cpu_usage_ns": 5, "memory_used_bytes": 100, "memory_limit_bytes": 400, "at": "2026-11-28T10:01:00Z"}
+    api.answer(200, {**sample, "disk_used_bytes": 4096, "disk_limit_bytes": 65536})
+    api.answer(200, sample)
+
+    with_disk = Sandbox.get_metrics("sbx_1", **conn(api))[0]
+    without_disk = Sandbox.get_metrics("sbx_1", **conn(api))[0]
+
+    assert (with_disk.mem_used, with_disk.mem_total, with_disk.disk_used, with_disk.disk_total) == (100, 400, 4096, 65536)
+    assert (without_disk.disk_used, without_disk.disk_total) == (None, None)
+
+
 def test_is_running_is_false_for_a_paused_and_for_a_missing_sandbox(api):
     sandbox = created(api)
     api.answer(200, WIRE)

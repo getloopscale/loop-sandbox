@@ -127,6 +127,10 @@ export interface SandboxMetrics {
   memoryLimitBytes: number;
   /** When the sample was taken (RFC 3339). */
   at: string;
+  /** Bytes in use in the workspace. Absent when the driver cannot read it, as for a paused sandbox. */
+  diskUsedBytes?: number;
+  /** Size of the workspace in bytes. Absent with diskUsedBytes. */
+  diskLimitBytes?: number;
 }
 
 /** One chunk of output written by a background process. */

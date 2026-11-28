@@ -11,7 +11,13 @@ import { HttpClient, type FetchLike, type WebSocketConstructor } from './http.js
 import type { ProcessInfo as StartedProcess } from './processes.js';
 import type { PtyConnection } from './pty.js';
 import { Sandbox as SandboxHandle, Sandboxes } from './sandboxes.js';
-import type { NetworkDenial, NetworkPolicy, SandboxInfo as WireShapedInfo, SandboxState } from './types.js';
+import type {
+  NetworkDenial,
+  NetworkPolicy,
+  SandboxInfo as WireShapedInfo,
+  SandboxMetrics as WireShapedMetrics,
+  SandboxState,
+} from './types.js';
 
 /** Where the console of LoopScale answers when no domain is given. */
 const DEFAULT_DOMAIN = 'app.getloopscale.com';
@@ -74,6 +80,10 @@ export interface SandboxMetrics {
   memTotal: number;
   /** CPU time used since the sandbox started, in nanoseconds. */
   cpuUsageNs: number;
+  /** Bytes in use in the workspace. Absent for a paused sandbox. */
+  diskUsed?: number;
+  /** Size of the workspace in bytes. Absent with diskUsed. */
+  diskTotal?: number;
 }
 
 export interface SandboxListOpts extends ConnectionOpts {
@@ -198,6 +208,20 @@ function toInfo(info: WireShapedInfo): SandboxInfo {
     endAt: new Date(info.expiresAt),
   };
   if (info.network) out.network = info.network;
+  return out;
+}
+
+function toMetrics(m: WireShapedMetrics): SandboxMetrics {
+  const out: SandboxMetrics = {
+    timestamp: new Date(m.at),
+    memUsed: m.memoryUsedBytes,
+    memTotal: m.memoryLimitBytes,
+    cpuUsageNs: m.cpuUsageNs,
+  };
+  if (m.diskLimitBytes !== undefined) {
+    out.diskUsed = m.diskUsedBytes ?? 0;
+    out.diskTotal = m.diskLimitBytes;
+  }
   return out;
 }
 
@@ -562,7 +586,7 @@ export class Sandbox {
   static async getMetrics(sandboxId: string, opts: ConnectionOpts = {}): Promise<SandboxMetrics[]> {
     const sandboxes = new Sandboxes(httpFrom(opts));
     const m = await naming(SandboxNotFoundError, () => sandboxes.metrics(sandboxId, opts.signal));
-    return [{ timestamp: new Date(m.at), memUsed: m.memoryUsedBytes, memTotal: m.memoryLimitBytes, cpuUsageNs: m.cpuUsageNs }];
+    return [toMetrics(m)];
   }
 
   /** Pauses a sandbox. Sandbox.connect resumes it. */
@@ -602,7 +626,7 @@ export class Sandbox {
 
   async getMetrics(): Promise<SandboxMetrics[]> {
     const m = await naming(SandboxNotFoundError, () => this.handle.metrics());
-    return [{ timestamp: new Date(m.at), memUsed: m.memoryUsedBytes, memTotal: m.memoryLimitBytes, cpuUsageNs: m.cpuUsageNs }];
+    return [toMetrics(m)];
   }
 
   async pause(): Promise<boolean> {

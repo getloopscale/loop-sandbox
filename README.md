@@ -192,7 +192,8 @@ What differs from e2b:
 - A command line runs through `/bin/sh -c`, because not every image ships bash.
 - The first argument of `Sandbox.create` is an image when it has a `:` or a `/`, and the name of a
   template otherwise.
-- `getMetrics` answers one sample, the current one, with `memUsed`, `memTotal` and `cpuUsageNs`.
+- `getMetrics` answers one sample, the current one, with `memUsed`, `memTotal`, `cpuUsageNs`, `diskUsed`
+  and `diskTotal`. The disk figures are absent for a paused sandbox.
 - `Sandbox.connect` resumes a paused sandbox. A terminal pid names a terminal opened by the same
   `sandbox.pty` object.
 - `sandbox.networkDenials()` lists the outbound connections the sandbox was refused. e2b has no

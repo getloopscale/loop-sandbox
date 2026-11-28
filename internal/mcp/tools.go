@@ -570,10 +570,14 @@ func dataTools() []tool {
 				if err != nil {
 					return nil, err
 				}
-				return map[string]any{
+				out := map[string]any{
 					"cpu_usage_ns": m.CPUUsageNanos, "memory_used_bytes": m.MemoryUsedBytes,
 					"memory_limit_bytes": m.MemoryLimitBytes, "at": m.At.UTC().Format(time.RFC3339Nano),
-				}, nil
+				}
+				if m.DiskLimitBytes > 0 {
+					out["disk_used_bytes"], out["disk_limit_bytes"] = m.DiskUsedBytes, m.DiskLimitBytes
+				}
+				return out, nil
 			},
 		},
 		{

@@ -8,6 +8,7 @@ All notable changes to this project are recorded in this file. The format follow
 
 ### Added
 
+- `GET /v1/sandboxes/{id}/metrics` on the `container` driver answers `disk_used_bytes` and `disk_limit_bytes`, the use and the size of the workspace. Both are absent for a paused sandbox. The TypeScript SDK has them as `diskUsed` and `diskTotal` in `getMetrics`, and the Python SDK as `disk_used` and `disk_total`. (#24)
 - TypeScript SDK: `Sandbox`, a class with the shape of the one in the e2b SDK. `Sandbox.create`, `connect`, `list`, `kill`, `getInfo`, `getMetrics`, `pause`, `setTimeout` and `updateNetwork`; `sandbox.commands.run` takes a command line and has `background`, `onStdout` and `onStderr`; `sandbox.files` has `read`, `write`, `list`, `exists`, `getInfo`, `makeDir`, `remove` and `rename`; `sandbox.pty` opens terminals. The key comes from `LOOPSCALE_API_KEY` and the address from `LOOPSCALE_DOMAIN` or `LOOPSCALE_API_URL`. The README lists what differs from e2b and what is absent. (#23)
 - Python SDK: the same `Sandbox` class, after the Python SDK of e2b: `Sandbox.create`, `connect`, `list`, `kill`, `get_info`, `get_metrics`, `pause`, `set_timeout` and `update_network`, `sandbox.commands.run` with a command line, and `sandbox.files`. It has no `sandbox.pty`. (#23)
 - Pause and resume on the `container` driver. `POST /v1/sandboxes/{id}/pause` freezes the processes of the sandbox, which stops using CPU and keeps its memory and files, and `resume` continues where it stopped. The route answered 501 on this driver. (#23)

@@ -638,7 +638,9 @@ paths:
       description: >
         "cpu_usage_ns" is the CPU time used since the sandbox started. For a
         rate, take two samples and divide the difference by the time between
-        their "at". Capability "metrics".
+        their "at". "disk_used_bytes" and "disk_limit_bytes" are the use and the
+        size of the workspace; both are absent when the driver cannot read them,
+        as for a paused sandbox. Capability "metrics".
       responses:
         '200':
           description: The resource use at "at"
@@ -651,6 +653,8 @@ paths:
                   cpu_usage_ns: { type: integer, format: int64 }
                   memory_used_bytes: { type: integer, format: int64 }
                   memory_limit_bytes: { type: integer, format: int64 }
+                  disk_used_bytes: { type: integer, format: int64 }
+                  disk_limit_bytes: { type: integer, format: int64 }
                   at: { type: string, format: date-time }
         '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
