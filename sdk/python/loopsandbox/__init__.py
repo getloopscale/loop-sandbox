@@ -7,18 +7,28 @@ dependencies (stdlib urllib). The HTTP transport is injectable for testing.
 """
 from __future__ import annotations
 
-from .client import LoopSandbox, Sandbox, SandboxPage, Session
+from .client import LoopSandbox, SandboxPage, Session
+from .client import Sandbox as SandboxHandle
 from .errors import (
+    AuthenticationException,
+    CommandExitException,
     ConflictError,
+    FileNotFoundException,
     ForbiddenError,
+    InvalidArgumentException,
     LoopSandboxError,
     NotFoundError,
+    NotFoundException,
     OperationTimeoutError,
     PayloadTooLargeError,
     QuotaExceededError,
     RateLimitError,
+    RateLimitException,
+    SandboxException,
+    SandboxNotFoundException,
     ServerError,
     StreamError,
+    TimeoutException,
     UnauthorizedError,
     UnsupportedError,
     ValidationError,
@@ -50,11 +60,38 @@ from .models import (
     Volume,
     Watch,
 )
+from .sandbox import (
+    ALL_TRAFFIC,
+    CommandHandle,
+    CommandResult,
+    EntryInfo,
+    FileType,
+    Sandbox,
+    SandboxPaginator,
+    WriteInfo,
+)
 from .transport import Response, StreamResponse, StreamTransport, Transport
 
 __all__ = [
     "LoopSandbox",
     "Sandbox",
+    "SandboxHandle",
+    "SandboxPaginator",
+    "ALL_TRAFFIC",
+    "CommandHandle",
+    "CommandResult",
+    "EntryInfo",
+    "FileType",
+    "WriteInfo",
+    "SandboxException",
+    "AuthenticationException",
+    "InvalidArgumentException",
+    "NotFoundException",
+    "SandboxNotFoundException",
+    "FileNotFoundException",
+    "CommandExitException",
+    "TimeoutException",
+    "RateLimitException",
     "SandboxPage",
     "Session",
     "CellResult",

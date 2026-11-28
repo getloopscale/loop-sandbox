@@ -209,19 +209,30 @@ Python (`sdk/python`, Python 3.9 or newer, no runtime dependencies). Install it 
 `pip install ./sdk/python`.
 
 ```python
-import os
-from loopsandbox import LoopSandbox
+from loopsandbox import Sandbox
 
-client = LoopSandbox(api_key=os.environ["LSB_API_KEY"], base_url="http://localhost:8080")
-sandbox = client.create_sandbox(image="python:3.12-slim", ttl_seconds=300)
-sandbox.write_file("/workspace/hello.txt", b"hello\n")
-result = sandbox.run(["cat", "/workspace/hello.txt"])
+# Reads LOOPSCALE_API_KEY, like the TypeScript SDK.
+sandbox = Sandbox.create("python:3.12-slim", timeout=300)
+sandbox.files.write("hello.txt", "hello\n")
+result = sandbox.commands.run("cat hello.txt")
 print(result.stdout)
-sandbox.destroy()
+sandbox.kill()
 ```
 
-The Python SDK also has `run_code` for stateful code sessions, `fork`, and adapters in
-`loopsandbox.adapters` that expose a sandbox as OpenAI or LangChain tools.
+The Python `Sandbox` follows the Python SDK of e2b: `create`, `connect`, `list`, `kill`, `is_running`,
+`get_info`, `get_metrics`, `pause`, `set_timeout`, `update_network` and `network_denials`, with
+`kill` and the methods after it callable on the class with a sandbox id or on the object.
+`sandbox.commands` has `run`, `connect`, `list`, `kill`, `send_stdin` and `close_stdin`, and
+`sandbox.files` has `read`, `write`, `write_files`, `list`, `exists`, `get_info`, `make_dir`,
+`remove` and `rename`. Timeouts are in seconds. The exceptions carry the e2b names:
+`SandboxException`, `AuthenticationException`, `InvalidArgumentException`, `NotFoundException`,
+`SandboxNotFoundException`, `FileNotFoundException`, `CommandExitException`, `TimeoutException`
+and `RateLimitException`. The differences and absences listed for TypeScript apply, and the Python
+SDK has no `sandbox.pty`, because it has no dependency that speaks WebSocket.
+
+The client underneath is `LoopSandbox(api_key, base_url)`. It also has `run_code` for stateful code
+sessions, `fork`, and adapters in `loopsandbox.adapters` that expose a sandbox as OpenAI or
+LangChain tools.
 
 ## Configuration
 

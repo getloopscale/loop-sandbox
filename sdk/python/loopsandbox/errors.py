@@ -149,3 +149,29 @@ def error_from_response(status: int, body: bytes, headers: Optional[Mapping[str,
     if cls is RateLimitError:
         return RateLimitError(status, code, message, _retry_after_seconds(headers or {}))
     return cls(status, code, message)
+
+
+# The names the e2b SDK gives the same failures, so code written for it keeps
+# its except clauses. The first six are the classes above under another name.
+SandboxException = LoopSandboxError
+AuthenticationException = UnauthorizedError
+InvalidArgumentException = ValidationError
+NotFoundException = NotFoundError
+TimeoutException = OperationTimeoutError
+RateLimitException = RateLimitError
+
+
+class SandboxNotFoundException(NotFoundError):
+    """404 on a sandbox: it was killed, it expired, or it belongs to another organization."""
+
+
+class FileNotFoundException(NotFoundError):
+    """404 on a path inside a sandbox."""
+
+
+class CommandExitException(LoopSandboxError):
+    """A command that ran to the end and exited with a code other than zero."""
+
+    def __init__(self, exit_code: int, stdout: str, stderr: str):
+        super().__init__(0, "command_exit", f"the command exited with code {exit_code}")
+        self.exit_code, self.stdout, self.stderr = exit_code, stdout, stderr

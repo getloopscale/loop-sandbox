@@ -1,4 +1,4 @@
-"""Sandbox lifecycle: create, list, get, timeout, fork, pause, resume, destroy, metrics, logs."""
+"""SandboxHandle lifecycle: create, list, get, timeout, fork, pause, resume, destroy, metrics, logs."""
 from loopsandbox import SandboxInfo, SandboxLogs, SandboxMetrics
 
 SANDBOX = {
