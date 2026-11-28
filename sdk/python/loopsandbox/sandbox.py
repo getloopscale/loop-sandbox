@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import functools
 import os
+import re
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Iterator, Mapping, Optional, Sequence, Union
+from urllib.parse import urlsplit
 
 from .client import LoopSandbox
 from .client import Sandbox as SandboxHandle
@@ -123,10 +125,7 @@ def _client(
             "no API key: pass api_key or set LOOPSCALE_API_KEY. Create a key with the "
             "sandbox:execute scope under API Tokens in the console.",
         )
-    base = api_url or os.environ.get("LOOPSCALE_API_URL")
-    if not base:
-        base = "https://" + (domain or os.environ.get("LOOPSCALE_DOMAIN") or DEFAULT_DOMAIN)
-    return LoopSandbox(key, base, transport=transport, stream_transport=stream_transport)
+    return LoopSandbox(key, _base_url(api_url, domain), transport=transport, stream_transport=stream_transport)
 
 
 @contextmanager
@@ -160,23 +159,67 @@ def _policy(network: Network) -> NetworkPolicy:
     return network if isinstance(network, NetworkPolicy) else NetworkPolicy.from_dict(network)
 
 
+E2B_HOME = "/home/user"  # where the files of an e2b sandbox live; a script written for e2b names it
+
+
 def _in_workspace(path: str) -> str:
     """Resolve a path the way a command in the sandbox would.
 
-    A relative path starts at the workspace. A path outside the workspace is
-    refused here, with the reason, because the API only reads and writes under it.
+    A relative path starts at the workspace. The home of an e2b sandbox stands for
+    the workspace, so a script written for e2b keeps its paths. Any other path
+    outside the workspace is refused here, with the reason, because the API only
+    reads and writes under it. A path with ".." is refused too: the alias is a plain
+    replacement of the prefix and must not be a way out of the workspace.
     """
+    if ".." in path.split("/"):
+        raise _outside_workspace(path)
     if not path.startswith("/"):
         relative = path[2:] if path.startswith("./") else path
         return WORKSPACE if relative in ("", ".") else f"{WORKSPACE}/{relative}"
     if path == WORKSPACE or path.startswith(WORKSPACE + "/"):
         return path
-    raise ValidationError(
+    if path == E2B_HOME or path.startswith(E2B_HOME + "/"):
+        return WORKSPACE + path[len(E2B_HOME):]
+    raise _outside_workspace(path)
+
+
+def _outside_workspace(path: str) -> ValidationError:
+    return ValidationError(
         0,
         "path_outside_workspace",
         f"the files of a sandbox live under {WORKSPACE}: use a relative path or one that starts "
-        f"with {WORKSPACE} (got {path})",
+        f'with {WORKSPACE}, without ".." (got {path})',
     )
+
+
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}  # this machine, where a development API may answer without TLS
+_DOMAIN = re.compile(r"^[A-Za-z0-9.-]+(:\d+)?$")
+
+
+def _base_url(api_url: Optional[str], domain: Optional[str]) -> str:
+    """Work out where the API is, refusing an address that would carry the API key without TLS.
+
+    Only an address of this machine may use plain HTTP.
+    """
+    api_url = api_url or os.environ.get("LOOPSCALE_API_URL")
+    if not api_url:
+        domain = domain or os.environ.get("LOOPSCALE_DOMAIN") or DEFAULT_DOMAIN
+        if not _DOMAIN.match(domain):
+            raise ValidationError(
+                0,
+                "invalid_domain",
+                f"the domain is a host name with no scheme and no path, such as {DEFAULT_DOMAIN} (got {domain})",
+            )
+        return "https://" + domain
+    parsed = urlsplit(api_url)
+    local = parsed.scheme == "http" and parsed.hostname in _LOOPBACK_HOSTS
+    if parsed.scheme != "https" and not local:
+        raise ValidationError(
+            0,
+            "insecure_api_url",
+            f"the API URL must use https, so the API key is never sent in the clear (got {api_url})",
+        )
+    return api_url
 
 
 def _finished(result: CommandResult) -> CommandResult:

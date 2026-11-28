@@ -240,9 +240,49 @@ def test_files_write_resolves_a_relative_path_against_the_workspace(api):
 def test_files_refuse_a_path_outside_the_workspace_and_say_where_files_live(api):
     sandbox = created(api)
 
-    with pytest.raises(InvalidArgumentException, match=r"under /workspace.*/home/user/a\.txt"):
-        sandbox.files.write("/home/user/a.txt", "hello")
+    with pytest.raises(InvalidArgumentException, match=r"under /workspace.*/etc/passwd"):
+        sandbox.files.write("/etc/passwd", "hello")
     assert len(api.calls) == 1
+
+
+def test_files_take_the_home_of_an_e2b_sandbox_as_the_workspace(api):
+    sandbox = created(api)
+    api.answer(204)
+
+    written = sandbox.files.write("/home/user/notes/a.txt", "hello")
+
+    assert api.last.path == "/v1/sandboxes/sbx_1/files/workspace/notes/a.txt"
+    assert written.path == "/workspace/notes/a.txt"
+
+
+@pytest.mark.parametrize("path", ["/home/username/a.txt", "/home/user/../../etc/passwd", "/home/user/a/../../../etc/passwd"])
+def test_files_refuse_a_path_that_only_looks_like_the_home_of_an_e2b_sandbox(api, path):
+    sandbox = created(api)
+
+    with pytest.raises(InvalidArgumentException):
+        sandbox.files.write(path, "hello")
+    assert len(api.calls) == 1
+
+
+def test_create_refuses_an_address_without_tls_before_sending_the_key(api):
+    with pytest.raises(InvalidArgumentException, match="https"):
+        Sandbox.create(api_key="theo_live_k", api_url="http://app.example.com", transport=api._transport)
+    assert api.calls == []
+
+
+@pytest.mark.parametrize("api_url", ["http://localhost:8080", "http://127.0.0.1:8080", "http://[::1]:8080"])
+def test_create_accepts_an_address_of_this_machine_without_tls(api, api_url):
+    api.answer(201, WIRE)
+
+    Sandbox.create(api_key="theo_live_k", api_url=api_url, transport=api._transport)
+
+    assert len(api.calls) == 1
+
+
+def test_create_refuses_a_domain_that_carries_a_scheme_or_a_path(api):
+    with pytest.raises(InvalidArgumentException):
+        Sandbox.create(api_key="theo_live_k", domain="http://app.example.com/x", transport=api._transport)
+    assert api.calls == []
 
 
 def test_files_read_answers_text_by_default_and_bytes_when_asked(api):
