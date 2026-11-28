@@ -25,7 +25,7 @@ func Official() []Template {
 		// Built by this repository (templates/Dockerfile, published by the templates
 		// workflow). The names are the ones of the e2b templates, so a script that
 		// creates a sandbox from one of them keeps its argument.
-		{Name: "base", Image: built("base"), Description: "Debian with Node.js 22, Python 3, pip, git, curl, jq and ripgrep."},
+		{Name: "base", Image: built("base"), Description: "Debian with Node.js 24, Python 3, pip, git, curl, jq and ripgrep."},
 		{Name: "claude", Image: built("claude"), Description: "The base template with the Claude Code CLI (claude)."},
 		{Name: "codex", Image: built("codex"), Description: "The base template with the OpenAI Codex CLI (codex)."},
 		{Name: "gemini", Image: built("gemini"), Description: "The base template with the Gemini CLI (gemini)."},

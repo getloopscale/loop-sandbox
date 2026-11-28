@@ -123,7 +123,7 @@ names are the ones of the e2b templates:
 
 | Template | What it has |
 |---|---|
-| `base` | Debian with Node.js 22, Python 3, pip, git, curl, jq and ripgrep |
+| `base` | Debian with Node.js 24, Python 3, pip, git, curl, jq and ripgrep |
 | `claude` | `base` with the Claude Code CLI, `claude` |
 | `codex` | `base` with the OpenAI Codex CLI, `codex` |
 | `gemini` | `base` with the Gemini CLI, `gemini` |
