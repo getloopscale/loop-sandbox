@@ -1,0 +1,22 @@
+#!/bin/sh
+# Starts the virtual display and the desktop session, and returns when the display
+# answers. Size: start-desktop [WIDTHxHEIGHT], 1280x800 by default.
+set -eu
+size="${1:-1280x800}"
+export DISPLAY="${DISPLAY:-:0}"
+if xdpyinfo >/dev/null 2>&1; then
+  echo "the desktop is already running on $DISPLAY"
+  exit 0
+fi
+Xvfb "$DISPLAY" -screen 0 "${size}x24" -nolisten tcp >/tmp/xvfb.log 2>&1 &
+i=0
+until xdpyinfo >/dev/null 2>&1; do
+  i=$((i + 1))
+  if [ "$i" -gt 50 ]; then
+    echo "the display $DISPLAY did not start; see /tmp/xvfb.log" >&2
+    exit 1
+  fi
+  sleep 0.2
+done
+dbus-launch --exit-with-session startxfce4 >/tmp/xfce.log 2>&1 &
+echo "the desktop is running on $DISPLAY at $size"

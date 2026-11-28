@@ -8,6 +8,7 @@ All notable changes to this project are recorded in this file. The format follow
 
 ### Added
 
+- Built-in templates `base`, `claude`, `codex`, `gemini`, `opencode`, `openclaw`, `droid`, `amp` and `desktop`, named after the e2b templates. `base` is Debian with Node.js 24, Python 3 and git; each agent template adds one coding agent CLI at an exact version; `desktop` adds an Xfce desktop on a virtual display, started by `start-desktop`. `Sandbox.create('claude')` starts one. The images are built from `templates/Dockerfile` and published by the `templates` workflow. (#27)
 - A limit of live sandboxes for each tenant, set by `LOOPSANDBOX_MAX_LIVE_SANDBOXES_PER_TENANT` and 20 by default. It counts the pending, the running and the paused sandboxes, because a paused sandbox on the `container` driver keeps its memory on the host. Beyond it `POST /v1/sandboxes` answers 429 with the code `live_sandbox_limit` and a message with the count and the limit. `0` removes the limit. (#26)
 - TypeScript and Python SDKs: in `sandbox.files` and in the `cwd` of a command, `/home/user`, the home of an e2b sandbox, stands for `/workspace`. `files.write('/home/user/a.txt', ...)` was refused and now writes `/workspace/a.txt`. A command line that names `/home/user` still fails, because the directory does not exist inside the sandbox. (#26)
 - `POST /v1/sandboxes` takes a template by name in `template`: one the tenant registered, or a built-in one such as `python`. It took only the id of a registered template, so `Sandbox.create('python')` answered 404 (#25).
