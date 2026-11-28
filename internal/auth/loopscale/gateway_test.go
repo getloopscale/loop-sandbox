@@ -187,3 +187,22 @@ func TestGatewayAnswers503WhenTheTenantStoreFails(t *testing.T) {
 		t.Errorf("status = %d, want 503", code)
 	}
 }
+
+func TestGatewayScopesLetACallerRunSandboxesAndManageSecretsOnly(t *testing.T) {
+	scopes := loopscale.GatewayScopes()
+	has := func(want string) bool {
+		for _, s := range scopes {
+			if s == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !has(domain.ScopeSandboxExecute) || !has(domain.ScopeSecretsManage) {
+		t.Errorf("gateway scopes = %v, want sandbox:execute and secrets:manage", scopes)
+	}
+	if has(domain.ScopeAPIKeysManage) {
+		t.Errorf("gateway scopes = %v: the gateway issues its own keys, the sandbox's are not for its callers", scopes)
+	}
+}

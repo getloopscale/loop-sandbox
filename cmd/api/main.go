@@ -390,7 +390,7 @@ func buildAuthMiddleware(mode string, store *postgres.Store, logger *slog.Logger
 			return nil, nErr
 		}
 		verifier := lsauth.NewForwardAuthVerifier(keys, tolerance, nonces)
-		return lsauth.NewGatewayAuthenticator(verifier, store, tenantPlan, []string{domain.ScopeSandboxExecute}).Middleware, nil
+		return lsauth.NewGatewayAuthenticator(verifier, store, tenantPlan, lsauth.GatewayScopes()).Middleware, nil
 	default:
 		return nil, fmt.Errorf("unknown auth mode %q (want standalone|loopscale|gateway)", mode)
 	}
