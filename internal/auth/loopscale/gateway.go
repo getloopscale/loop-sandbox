@@ -28,6 +28,13 @@ type GatewayAuthenticator struct {
 	now      func() time.Time
 }
 
+// GatewayScopes are what a caller the gateway vouches for may do. The gateway
+// decides which of its callers reach which path: a request it signed for the
+// secrets routes comes from a caller it allowed to manage secrets.
+func GatewayScopes() []string {
+	return []string{domain.ScopeSandboxExecute, domain.ScopeSecretsManage}
+}
+
 // NewGatewayAuthenticator wires the gate. A tenant the sandbox has not seen is
 // created on plan; every principal holds scopes.
 func NewGatewayAuthenticator(verifier *ForwardAuthVerifier, tenants domain.TenantStore, plan domain.Plan, scopes []string) *GatewayAuthenticator {
