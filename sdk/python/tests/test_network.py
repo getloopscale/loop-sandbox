@@ -1,4 +1,4 @@
-"""Sandbox network: rules at creation, replacing them, and the refused connections."""
+"""SandboxHandle network: rules at creation, replacing them, and the refused connections."""
 from loopsandbox import NetworkDenial, NetworkPolicy
 
 SANDBOX = {"id": "sbx_1", "tenant_id": "tenant-a", "state": "running"}

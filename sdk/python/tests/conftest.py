@@ -5,7 +5,7 @@ from typing import Optional
 
 import pytest
 
-from loopsandbox import LoopSandbox, Response, Sandbox
+from loopsandbox import LoopSandbox, Response, SandboxHandle
 
 BASE_URL = "https://api.test"
 
@@ -44,7 +44,7 @@ class FakeApi:
         self.answer(status, {"error": {"code": code, "message": message}}, headers)
 
     def sandbox(self, sandbox_id="sbx_1"):
-        return Sandbox(self.client, sandbox_id)
+        return SandboxHandle(self.client, sandbox_id)
 
     @property
     def last(self):

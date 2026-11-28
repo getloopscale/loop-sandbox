@@ -1,5 +1,19 @@
 export { LoopSandbox } from './client.js';
-export { Sandbox, Sandboxes } from './sandboxes.js';
+export { ALL_TRAFFIC, Sandbox, SandboxCommands, SandboxFiles, SandboxPaginator, SandboxPty } from './sandbox.js';
+export type {
+  CommandHandle,
+  CommandResult,
+  CommandStartOpts,
+  ConnectionOpts,
+  EntryInfo,
+  FileType,
+  PtyCreateOpts,
+  SandboxListOpts,
+  SandboxOpts,
+  WriteEntry,
+  WriteInfo,
+} from './sandbox.js';
+export { Sandbox as SandboxHandle, Sandboxes } from './sandboxes.js';
 export type { SandboxPage } from './sandboxes.js';
 export { Files } from './files.js';
 export { Commands } from './executions.js';
@@ -61,4 +75,10 @@ export {
   TimeoutError,
   ServerError,
   NotImplementedError,
+  SandboxError,
+  AuthenticationError,
+  InvalidArgumentError,
+  SandboxNotFoundError,
+  FileNotFoundError,
+  CommandExitError,
 } from './errors.js';

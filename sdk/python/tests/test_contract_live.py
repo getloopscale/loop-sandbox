@@ -86,8 +86,8 @@ def test_python_sdk_cross_tenant_is_404(live_api):
     sbx = owner.create_sandbox()
     try:
         other.run_code_sandbox = None  # noqa
-        Sandbox = type(sbx)
-        Sandbox(other, sbx.id).run(["echo", "hi"])
+        SandboxHandle = type(sbx)
+        SandboxHandle(other, sbx.id).run(["echo", "hi"])
         assert False, "cross-tenant exec succeeded"
     except NotFoundError:
         pass

@@ -7,7 +7,7 @@ from loopsandbox import (
     CellResult,
     ExecResult,
     LoopSandbox,
-    Sandbox,
+    SandboxHandle,
     Session,
     StreamError,
     StreamEvent,
@@ -42,7 +42,7 @@ class FakeStream:
 
 def streaming_sandbox(stream):
     client = LoopSandbox("lsb_k", "https://api.test", stream_transport=stream)
-    return Sandbox(client, "sbx_1")
+    return SandboxHandle(client, "sbx_1")
 
 
 def test_run_sends_command_workdir_env_and_timeout(api):
