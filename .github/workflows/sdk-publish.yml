@@ -1,0 +1,100 @@
+name: sdk-publish
+
+# Publishes the SDKs: sdk/javascript to npm and sdk/python to PyPI, both as "loopsandbox".
+#
+# A tag sdk-v<version> publishes both, and must name the version of both packages.
+# A manual run publishes one registry or both from the chosen ref.
+#
+# No token is stored. Each registry trusts this workflow file by OIDC (trusted
+# publishing), which is set up once on the registry for the package:
+#   npm:  package settings, Trusted Publisher, this repository and "sdk-publish.yml"
+#   PyPI: project settings, Publishing, this repository and "sdk-publish.yml"
+on:
+  push:
+    tags: ["sdk-v*"]
+  workflow_dispatch:
+    inputs:
+      registry:
+        description: Where to publish
+        type: choice
+        options: [both, npm, pypi]
+        default: both
+
+permissions: {}
+
+# A publish must never be cancelled halfway.
+concurrency:
+  group: sdk-publish
+  cancel-in-progress: false
+
+jobs:
+  npm:
+    if: github.event_name == 'push' || inputs.registry != 'pypi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # trusted publishing and provenance
+    defaults:
+      run:
+        working-directory: sdk/javascript
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+      - name: Refuse a tag that does not name the package version
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "sdk-v${version}" != "${TAG}" ]; then
+            echo "::error::tag ${TAG} does not match package.json version ${version}"
+            exit 1
+          fi
+      # Trusted publishing needs npm 11.5.1 or newer.
+      - run: npm install -g npm@11.21.2
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm publish --access public
+
+  pypi:
+    if: github.event_name == 'push' || inputs.registry != 'npm'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # trusted publishing
+    defaults:
+      run:
+        working-directory: sdk/python
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Refuse a tag that does not name the package version
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")"
+          if [ "sdk-v${version}" != "${TAG}" ]; then
+            echo "::error::tag ${TAG} does not match pyproject.toml version ${version}"
+            exit 1
+          fi
+      - run: python -m pip install build "pytest>=7" "pyyaml>=6"
+      - run: python -m pytest -q --ignore=tests/test_contract_live.py --ignore=tests/test_deployment_live.py
+      - run: python -m build
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: sdk/python/dist

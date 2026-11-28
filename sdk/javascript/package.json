@@ -1,8 +1,24 @@
 {
   "name": "loopsandbox",
   "version": "0.1.0",
-  "description": "TypeScript SDK for LoopSandbox: run untrusted code in isolated sandboxes.",
+  "description": "TypeScript SDK for LoopScale code sandboxes: run untrusted code in an isolated sandbox.",
   "license": "Apache-2.0",
+  "homepage": "https://github.com/getloopscale/loop-sandbox#sdks",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getloopscale/loop-sandbox.git",
+    "directory": "sdk/javascript"
+  },
+  "bugs": {
+    "url": "https://github.com/getloopscale/loop-sandbox/issues"
+  },
+  "keywords": [
+    "sandbox",
+    "code-interpreter",
+    "loopscale",
+    "ai-agents",
+    "e2b"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
