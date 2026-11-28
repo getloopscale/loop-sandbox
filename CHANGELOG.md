@@ -49,6 +49,7 @@ All notable changes to this project are recorded in this file. The format follow
 
 ### Changed
 
+- With `LOOPSANDBOX_AUTH=gateway`, a caller the gateway vouches for also holds `secrets:manage`, so the gateway can forward `/v1/secrets`. It decides which of its callers reach those routes (#25).
 - Both SDKs: the class exported as `Sandbox` is the new one. The handle that `client.sandboxes.create` and `create_sandbox` return is exported as `SandboxHandle`. (#23)
 - The server, the TypeScript SDK and the Python SDK declare one version, `0.1.0`, and a test fails when they differ. The SDKs carried unpublished numbers of their own, `0.6.0` and `0.21.0`.
 - **Breaking:** the TypeScript SDK package is named `loopsandbox`, the same name as the Python package. It was `@loopsandbox/sdk`, which was never published.
