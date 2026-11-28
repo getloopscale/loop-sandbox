@@ -31,3 +31,22 @@ func TestMetricsOfLeavesTheDroppablePageCacheOutOfUsedMemory(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkspaceUseReadsUsedAndTotalFromDf(t *testing.T) {
+	out := "Filesystem           1024-blocks    Used Available Capacity Mounted on\n" +
+		"tmpfs                    65536     120     65416   0% /workspace\n"
+
+	used, total, ok := workspaceUse(out)
+
+	if !ok || used != 120<<10 || total != 65536<<10 {
+		t.Errorf("workspaceUse = %d of %d (ok=%v), want %d of %d", used, total, ok, 120<<10, 65536<<10)
+	}
+}
+
+func TestWorkspaceUseRefusesOutputItCannotRead(t *testing.T) {
+	for _, out := range []string{"", "Filesystem 1024-blocks Used\n", "header\ntmpfs many few\n"} {
+		if _, _, ok := workspaceUse(out); ok {
+			t.Errorf("workspaceUse(%q) reported a figure", out)
+		}
+	}
+}

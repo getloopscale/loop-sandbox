@@ -131,7 +131,11 @@ type SandboxMetrics struct {
 	CPUUsageNanos    uint64
 	MemoryUsedBytes  uint64
 	MemoryLimitBytes uint64
-	At               time.Time
+	// DiskUsedBytes and DiskLimitBytes are the use and the size of the workspace.
+	// Both are zero when the driver could not read them.
+	DiskUsedBytes  uint64
+	DiskLimitBytes uint64
+	At             time.Time
 }
 
 // MetricsDriver is an optional Driver interface for the resource use of a sandbox.

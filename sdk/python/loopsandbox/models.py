@@ -231,10 +231,20 @@ class SandboxMetrics:
     memory_used_bytes: int
     memory_limit_bytes: int
     at: str
+    disk_used_bytes: Optional[int] = None  # None when the driver cannot read it, as for a paused sandbox
+    disk_limit_bytes: Optional[int] = None  # size of the workspace; None with disk_used_bytes
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "SandboxMetrics":
-        return cls(d["cpu_usage_ns"], d["memory_used_bytes"], d["memory_limit_bytes"], d["at"])
+        limit = d.get("disk_limit_bytes")
+        return cls(
+            d["cpu_usage_ns"],
+            d["memory_used_bytes"],
+            d["memory_limit_bytes"],
+            d["at"],
+            d.get("disk_used_bytes", 0) if limit else None,
+            limit or None,
+        )
 
 
 @dataclass

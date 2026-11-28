@@ -14,7 +14,8 @@ import (
 // observedDriver is a driver that answers logs and metrics from fixed data.
 type observedDriver struct {
 	runtime.Driver
-	wait time.Duration
+	wait                time.Duration
+	diskUsed, diskLimit uint64
 }
 
 func (d *observedDriver) SandboxLogs(_ context.Context, _ runtime.SandboxID, after int64, wait time.Duration) (*runtime.SandboxLogs, error) {
@@ -25,7 +26,10 @@ func (d *observedDriver) SandboxLogs(_ context.Context, _ runtime.SandboxID, aft
 }
 
 func (d *observedDriver) SandboxMetrics(context.Context, runtime.SandboxID) (*runtime.SandboxMetrics, error) {
-	return &runtime.SandboxMetrics{CPUUsageNanos: 1500, MemoryUsedBytes: 2 << 20, MemoryLimitBytes: 512 << 20, At: epoch}, nil
+	return &runtime.SandboxMetrics{
+		CPUUsageNanos: 1500, MemoryUsedBytes: 2 << 20, MemoryLimitBytes: 512 << 20, At: epoch,
+		DiskUsedBytes: d.diskUsed, DiskLimitBytes: d.diskLimit,
+	}, nil
 }
 
 func TestSandboxLogsReturnsEntriesAndTheCursor(t *testing.T) {
@@ -57,6 +61,30 @@ func TestSandboxLogsRejectsInvalidCursorsAndWaits(t *testing.T) {
 				t.Errorf("status = %d, want 400 (%s)", rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestSandboxMetricsReturnsTheWorkspaceUseWhenTheDriverReportsIt(t *testing.T) {
+	srv := processServer(&observedDriver{Driver: fake.New(), diskUsed: 4096, diskLimit: 64 << 20})
+	sb := createWith(t, srv, "key-a", `{}`)
+
+	body := call(srv, http.MethodGet, "/v1/sandboxes/"+sb.ID+"/metrics", "key-a", "").Body.String()
+
+	for _, want := range []string{`"disk_used_bytes":4096`, `"disk_limit_bytes":67108864`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body %s lacks %s", body, want)
+		}
+	}
+}
+
+func TestSandboxMetricsLeavesTheDiskOutWhenTheDriverDoesNotReportIt(t *testing.T) {
+	srv := processServer(&observedDriver{Driver: fake.New()})
+	sb := createWith(t, srv, "key-a", `{}`)
+
+	body := call(srv, http.MethodGet, "/v1/sandboxes/"+sb.ID+"/metrics", "key-a", "").Body.String()
+
+	if strings.Contains(body, "disk_") {
+		t.Errorf("body %s names a disk figure the driver did not report", body)
 	}
 }
 

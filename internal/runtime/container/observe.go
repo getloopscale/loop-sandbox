@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/containerd/errdefs"
@@ -37,7 +39,47 @@ func (d *Driver) SandboxMetrics(ctx context.Context, id runtime.SandboxID) (*run
 	if err := json.NewDecoder(reader.Body).Decode(&stats); err != nil {
 		return nil, fmt.Errorf("container stats: decode: %w", err)
 	}
-	return metricsOf(&stats, time.Now().UTC()), nil
+	m := metricsOf(&stats, time.Now().UTC())
+	m.DiskUsedBytes, m.DiskLimitBytes = d.workspaceUse(ctx, id)
+	return m, nil
+}
+
+// workspaceUseTimeout bounds the read of the workspace size, so a sandbox that
+// does not answer costs the metrics a second and not the request.
+const workspaceUseTimeout = 2 * time.Second
+
+// workspaceUse asks the sandbox how full its workspace is. It answers zeros
+// when the sandbox cannot run a command, which is the case while it is paused:
+// the CPU and memory figures come from the daemon and are still good, so the
+// metrics are returned without the disk instead of failing.
+func (d *Driver) workspaceUse(ctx context.Context, id runtime.SandboxID) (used, total uint64) {
+	ctx, cancel := context.WithTimeout(ctx, workspaceUseTimeout)
+	defer cancel()
+	res, err := d.Exec(ctx, id, runtime.ExecRequest{Cmd: []string{"df", "-Pk", defaultWorkDir}})
+	if err != nil || res.ExitCode != 0 {
+		return 0, 0
+	}
+	used, total, _ = workspaceUse(string(res.Stdout))
+	return used, total
+}
+
+// workspaceUse reads the used and total bytes from the output of `df -Pk` for
+// one path: a header line, then "filesystem blocks used available ...".
+func workspaceUse(df string) (used, total uint64, ok bool) {
+	lines := strings.Split(strings.TrimSpace(df), "\n")
+	if len(lines) < 2 {
+		return 0, 0, false
+	}
+	fields := strings.Fields(lines[len(lines)-1])
+	if len(fields) < 3 {
+		return 0, 0, false
+	}
+	totalKB, errTotal := strconv.ParseUint(fields[1], 10, 64)
+	usedKB, errUsed := strconv.ParseUint(fields[2], 10, 64)
+	if errTotal != nil || errUsed != nil {
+		return 0, 0, false
+	}
+	return usedKB << 10, totalKB << 10, true
 }
 
 // metricsOf converts Docker's stats. Memory in use leaves out the page cache

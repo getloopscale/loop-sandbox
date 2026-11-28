@@ -178,6 +178,22 @@ describe('Sandbox lifecycle', () => {
     ]);
   });
 
+  it('getMetrics carries the use of the workspace when the API reports it', async () => {
+    const sample = {
+      cpu_usage_ns: 5,
+      memory_used_bytes: 100,
+      memory_limit_bytes: 400,
+      disk_used_bytes: 4096,
+      disk_limit_bytes: 65536,
+      at: '2026-11-28T10:01:00Z',
+    };
+    const { fetch } = scripted([json(200, sample)]);
+
+    const [metrics] = await Sandbox.getMetrics('sbx_1', conn(fetch));
+
+    expect(metrics).toMatchObject({ diskUsed: 4096, diskTotal: 65536 });
+  });
+
   it('list pages through the sandboxes', async () => {
     const { fetch, calls } = scripted([
       json(200, { sandboxes: [wire], next_cursor: 'c1' }),

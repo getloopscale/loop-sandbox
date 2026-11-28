@@ -104,6 +104,8 @@ class SandboxMetrics:
     mem_used: int  # bytes
     mem_total: int  # bytes
     cpu_usage_ns: int  # CPU time used since the sandbox started
+    disk_used: Optional[int] = None  # bytes in use in the workspace; None for a paused sandbox
+    disk_total: Optional[int] = None  # size of the workspace in bytes
 
 
 def _client(
@@ -495,7 +497,12 @@ class Sandbox:
         """The current use of CPU and memory, as a list of one sample."""
         with _naming(SandboxNotFoundException):
             m = handle.metrics()
-        return [SandboxMetrics(_time(m.at), m.memory_used_bytes, m.memory_limit_bytes, m.cpu_usage_ns)]
+        return [
+            SandboxMetrics(
+                _time(m.at), m.memory_used_bytes, m.memory_limit_bytes, m.cpu_usage_ns,
+                m.disk_used_bytes, m.disk_limit_bytes,
+            )
+        ]
 
     @_on_class_or_object
     def pause(handle: SandboxHandle) -> bool:  # noqa: N805

@@ -366,6 +366,8 @@ export class Sandboxes {
       cpu_usage_ns: number;
       memory_used_bytes: number;
       memory_limit_bytes: number;
+      disk_used_bytes?: number;
+      disk_limit_bytes?: number;
       at: string;
     }>({
       method: 'GET',
@@ -373,12 +375,17 @@ export class Sandboxes {
       retriable: true,
       signal,
     });
-    return {
+    const metrics: SandboxMetrics = {
       cpuUsageNs: w.cpu_usage_ns,
       memoryUsedBytes: w.memory_used_bytes,
       memoryLimitBytes: w.memory_limit_bytes,
       at: w.at,
     };
+    if (w.disk_limit_bytes) {
+      metrics.diskUsedBytes = w.disk_used_bytes ?? 0;
+      metrics.diskLimitBytes = w.disk_limit_bytes;
+    }
+    return metrics;
   }
 
   /** logs reads, in the order it was written, what the background processes
