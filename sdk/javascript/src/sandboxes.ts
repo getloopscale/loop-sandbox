@@ -175,6 +175,11 @@ export class Sandbox {
     return this.collection.resume(this.id, signal);
   }
 
+  /** Reads the sandbox again, so its state and expiry are the current ones. */
+  refreshed(signal?: AbortSignal): Promise<Sandbox> {
+    return this.collection.get(this.id, signal);
+  }
+
   /** metrics reads the CPU and memory use of the sandbox. */
   metrics(signal?: AbortSignal): Promise<SandboxMetrics> {
     return this.collection.metrics(this.id, signal);

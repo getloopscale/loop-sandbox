@@ -93,3 +93,28 @@ export function errorFromResponse(
       return new LoopSandboxError(message, status, code, requestId);
   }
 }
+
+// The names the e2b SDK gives the same failures, so code written for it keeps
+// its catch clauses. The first three are the classes above under another name.
+export {
+  LoopSandboxError as SandboxError,
+  UnauthorizedError as AuthenticationError,
+  ValidationError as InvalidArgumentError,
+};
+/** 404 on a sandbox: it was killed, it expired, or it belongs to another organization. */
+export class SandboxNotFoundError extends NotFoundError {}
+/** 404 on a path inside a sandbox. */
+export class FileNotFoundError extends NotFoundError {}
+/** A command that ran to the end and exited with a code other than zero. */
+export class CommandExitError extends LoopSandboxError {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+
+  constructor(exitCode: number, stdout: string, stderr: string) {
+    super(`the command exited with code ${exitCode}`, 0, 'command_exit');
+    this.exitCode = exitCode;
+    this.stdout = stdout;
+    this.stderr = stderr;
+  }
+}

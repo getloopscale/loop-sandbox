@@ -161,15 +161,49 @@ Both SDKs are built from this repository.
 TypeScript (`sdk/javascript`, Node 18 or newer). Build it with `make sdk`.
 
 ```ts
-import { LoopSandbox } from 'loopsandbox';
+import { Sandbox } from 'loopsandbox';
 
-const client = new LoopSandbox({ baseUrl: 'http://localhost:8080', apiKey: process.env.LSB_API_KEY });
-const sandbox = await client.sandboxes.create({ image: 'busybox:latest', ttlSeconds: 300 });
-await sandbox.files.write('/workspace/hello.txt', 'hello\n');
-const result = await sandbox.commands.run(['cat', '/workspace/hello.txt']);
+// Reads LOOPSCALE_API_KEY, a key with the sandbox:execute scope from API Tokens in the console.
+const sandbox = await Sandbox.create('python:3.12-slim', { timeoutMs: 300_000 });
+await sandbox.files.write('hello.txt', 'hello\n');
+const result = await sandbox.commands.run('cat hello.txt');
 console.log(result.stdout);
-await sandbox.destroy();
+await sandbox.kill();
 ```
+
+`Sandbox` has the shape of the class of the same name in the e2b SDK, so a script written for e2b
+runs after two changes: the import, and `LOOPSCALE_API_KEY` in place of `E2B_API_KEY`.
+`LOOPSCALE_DOMAIN` names another console, and `LOOPSCALE_API_URL` a full base URL such as
+`http://localhost:8080`.
+
+| Area | Methods |
+| --- | --- |
+| `Sandbox` (static) | `create`, `connect`, `list`, `kill`, `getInfo`, `getMetrics`, `pause`, `setTimeout`, `updateNetwork` |
+| `sandbox` | `kill`, `isRunning`, `getInfo`, `getMetrics`, `pause`, `setTimeout`, `updateNetwork`, `networkDenials` |
+| `sandbox.commands` | `run` (with `background`, `cwd`, `envs`, `onStdout`, `onStderr`, `timeoutMs`), `connect`, `list`, `kill`, `sendStdin`, `closeStdin` |
+| `sandbox.files` | `read` (`text`, `bytes`, `blob`), `write`, `writeFiles`, `list`, `exists`, `getInfo`, `makeDir`, `remove`, `rename` |
+| `sandbox.pty` | `create`, `sendInput`, `resize`, `kill` |
+| Errors | `SandboxError`, `AuthenticationError`, `InvalidArgumentError`, `NotFoundError`, `SandboxNotFoundError`, `FileNotFoundError`, `CommandExitError`, `RateLimitError`, `TimeoutError` |
+
+What differs from e2b:
+
+- Files live under `/workspace`, which is also where a command starts. A relative path resolves
+  against it. A path outside it, such as `/home/user/a.txt`, is refused with `InvalidArgumentError`.
+- A command line runs through `/bin/sh -c`, because not every image ships bash.
+- The first argument of `Sandbox.create` is an image when it has a `:` or a `/`, and the name of a
+  template otherwise.
+- `getMetrics` answers one sample, the current one, with `memUsed`, `memTotal` and `cpuUsageNs`.
+- `Sandbox.connect` resumes a paused sandbox. A terminal pid names a terminal opened by the same
+  `sandbox.pty` object.
+- `sandbox.networkDenials()` lists the outbound connections the sandbox was refused. e2b has no
+  equivalent.
+
+What the e2b SDK has and this one does not: `getHost`, `uploadUrl`, `downloadUrl`, `getMcpUrl`,
+`getMcpToken`, `git`, `files.watchDir`, `commands.streamInput`, `read` with `format: 'stream'`,
+`Sandbox.fork`, and the snapshot methods on `Sandbox`.
+
+The client underneath is still exported. `new LoopSandbox({ baseUrl, apiKey })` reaches every route
+of the API, including watches, code sessions, snapshots, volumes, templates and signed file URLs.
 
 Python (`sdk/python`, Python 3.9 or newer, no runtime dependencies). Install it with
 `pip install ./sdk/python`.
