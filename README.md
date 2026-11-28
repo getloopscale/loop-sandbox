@@ -215,9 +215,10 @@ What differs from e2b:
 - Files live under `/workspace`, which is also where a command starts. A relative path resolves
   against it. In `sandbox.files` and in the `cwd` of a command, `/home/user`, the home of an e2b
   sandbox, stands for `/workspace`, so `files.write('/home/user/a.txt', ...)` writes
-  `/workspace/a.txt`. The directory `/home/user` does not exist inside the sandbox: a command line
-  that names it, such as `cat /home/user/a.txt`, fails, and has to say `/workspace` or use a
-  relative path. Any other path outside the workspace, and any path with `..`, is refused with
+  `/workspace/a.txt`. Inside a sandbox of a template built here (`base`, the agent templates and
+  `desktop`), `/home/user` is a link to `/workspace`, so a command line such as
+  `cat /home/user/a.txt` works too. The other images have no such directory: there a command line
+  has to say `/workspace` or use a relative path. Any other path outside the workspace, and any path with `..`, is refused with
   `InvalidArgumentError`.
 - The SDK sends the API key only over HTTPS. An API URL with `http://` is refused with
   `InvalidArgumentError`, unless the host is `localhost`, `127.0.0.1` or `[::1]`.

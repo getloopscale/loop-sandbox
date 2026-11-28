@@ -40,7 +40,7 @@ func Official() []Template {
 // builtVersion is the TEMPLATES_VERSION of .github/workflows/templates.yml: the
 // version of the images this repository builds. A published tag is never
 // overwritten, so a change to templates/ raises both.
-const builtVersion = "2026.11.28"
+const builtVersion = "2026.11.28.1"
 
 // built names the image of a template this repository builds.
 func built(name string) string {

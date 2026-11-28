@@ -12,7 +12,11 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates curl git jq less openssh-client procps python3 python3-pip python3-venv ripgrep unzip \
  && rm -rf /var/lib/apt/lists/* \
- && ln -s /usr/bin/python3 /usr/local/bin/python
+ && ln -s /usr/bin/python3 /usr/local/bin/python \
+ && ln -s /workspace /home/user
+# /home/user is the home of an e2b sandbox. Here it is a link to the workspace, so a
+# command written for e2b, such as "cat /home/user/a.txt", finds the same files.
+#
 # pip installs into the home of the sandbox user without asking for a virtual environment.
 #
 # BUN_TMPDIR: a CLI compiled with Bun unpacks its native modules into its temporary
