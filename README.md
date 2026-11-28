@@ -188,7 +188,16 @@ runs after two changes: the import, and `LOOPSCALE_API_KEY` in place of `E2B_API
 What differs from e2b:
 
 - Files live under `/workspace`, which is also where a command starts. A relative path resolves
-  against it. A path outside it, such as `/home/user/a.txt`, is refused with `InvalidArgumentError`.
+  against it. In `sandbox.files` and in the `cwd` of a command, `/home/user`, the home of an e2b
+  sandbox, stands for `/workspace`, so `files.write('/home/user/a.txt', ...)` writes
+  `/workspace/a.txt`. The directory `/home/user` does not exist inside the sandbox: a command line
+  that names it, such as `cat /home/user/a.txt`, fails, and has to say `/workspace` or use a
+  relative path. Any other path outside the workspace, and any path with `..`, is refused with
+  `InvalidArgumentError`.
+- The SDK sends the API key only over HTTPS. An API URL with `http://` is refused with
+  `InvalidArgumentError`, unless the host is `localhost`, `127.0.0.1` or `[::1]`.
+- A create answers `RateLimitError` with the code `live_sandbox_limit` when the organization
+  already holds as many live sandboxes as the deployment allows. A paused sandbox counts.
 - A command line runs through `/bin/sh -c`, because not every image ships bash.
 - The first argument of `Sandbox.create` is an image when it has a `:` or a `/`, and a template
   otherwise: the name of a built-in one (`Sandbox.create('python')`), or the name or id of one you
@@ -256,6 +265,7 @@ The API and the worker read their configuration from environment variables.
 | `LOOPSANDBOX_USAGE_WEBHOOK_SECRET` | unset | When set, each usage request carries `X-LoopSandbox-Signature: sha256=<hex HMAC-SHA256 of the body>`. |
 | `LOOPSANDBOX_RATE_LIMIT_RPS` | `100` | Requests per second each API key may make, on average. Beyond it the API answers 429 with `Retry-After`. `0` turns the limit off. Each API replica counts on its own. |
 | `LOOPSANDBOX_RATE_LIMIT_BURST` | twice the rate | Requests an API key may make at once. |
+| `LOOPSANDBOX_MAX_LIVE_SANDBOXES_PER_TENANT` | `20` | Sandboxes one tenant may hold at once, counting the pending, the running and the paused ones. A paused sandbox on the `container` driver keeps its memory on the host, so it holds its place. Beyond the limit a create answers 429 with the code `live_sandbox_limit`. `0` removes the limit. Each API replica counts on its own, so creates in flight on several replicas can pass it. |
 | `LOOPSANDBOX_SECRETS_KEY` | unset | 64 hexadecimal characters (`openssl rand -hex 32`): the key that encrypts tenant secrets at rest. Unset, the `/v1/secrets` routes answer 501. Every replica needs the same value, and losing it loses the secrets. |
 | `LOOPSANDBOX_URL_SIGNING_KEY` | unset | Secret of at least 32 bytes that signs file URLs. Unset, `POST /v1/sandboxes/{id}/file-urls` answers 501. Every replica needs the same value. |
 | `LOOPSANDBOX_PUBLIC_URL` | unset | Address clients reach the API at, used in signed file URLs. Unset, the URL is built from the request. |

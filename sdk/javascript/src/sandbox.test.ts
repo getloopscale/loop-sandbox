@@ -309,12 +309,35 @@ describe('sandbox.files', () => {
   it('refuses a path outside the workspace before calling the API, and says where files live', async () => {
     const { sandbox, calls } = await created([new Response(null, { status: 204 })]);
 
-    const err = await sandbox.files.write('/home/user/a.txt', 'hello').catch((e: unknown) => e);
+    const err = await sandbox.files.write('/etc/passwd', 'hello').catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(InvalidArgumentError);
-    expect((err as Error).message).toMatch(/under \/workspace.*\/home\/user\/a\.txt/);
+    expect((err as Error).message).toMatch(/under \/workspace.*\/etc\/passwd/);
     expect(calls).toHaveLength(1);
   });
+
+  it('takes /home/user, the home of an e2b sandbox, as the workspace', async () => {
+    const { sandbox, calls } = await created([new Response(null, { status: 204 }), new Response(null, { status: 204 })]);
+
+    const written = await sandbox.files.write('/home/user/notes/a.txt', 'hello');
+    await sandbox.files.makeDir('/home/user');
+
+    expect(calls[1]!.url).toBe(`${BASE}/v1/sandboxes/sbx_1/files/workspace/notes/a.txt`);
+    expect(written.path).toBe('/workspace/notes/a.txt');
+    expect(calls[2]!.url).toContain('/workspace');
+  });
+
+  it.each(['/home/username/a.txt', '/home/user/../../etc/passwd', '/home/user/a/../../../etc/passwd'])(
+    'refuses %s, which only looks like the home of an e2b sandbox',
+    async (path) => {
+      const { sandbox, calls } = await created([new Response(null, { status: 204 })]);
+
+      const err = await sandbox.files.write(path, 'hello').catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(InvalidArgumentError);
+      expect(calls).toHaveLength(1);
+    },
+  );
 
   it('reads text by default and bytes when asked', async () => {
     const { sandbox } = await created([() => new Response('hello', { status: 200 })]);
@@ -356,5 +379,34 @@ describe('sandbox.files', () => {
 
     expect(bodyOf(calls[1]!)).toMatchObject({ from: '/workspace/a.txt', to: '/workspace/b.txt' });
     expect(entry).toMatchObject({ name: 'b.txt', path: '/workspace/b.txt', type: 'file', size: 5 });
+  });
+});
+
+describe('where the API key is sent', () => {
+  it('refuses an address without TLS before sending the key', async () => {
+    const { fetch, calls } = scripted([json(201, wire)]);
+
+    const err = await Sandbox.create({ apiKey: API_KEY, apiUrl: 'http://app.example.com', fetch }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(InvalidArgumentError);
+    expect((err as Error).message).toMatch(/https/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each(['http://localhost:8080', 'http://127.0.0.1:8080', 'http://[::1]:8080'])('accepts %s, an address of this machine', async (apiUrl) => {
+    const { fetch, calls } = scripted([json(201, wire)]);
+
+    await Sandbox.create({ apiKey: API_KEY, apiUrl, fetch });
+
+    expect(calls).toHaveLength(1);
+  });
+
+  it('refuses a domain that carries a scheme or a path', async () => {
+    const { fetch, calls } = scripted([json(201, wire)]);
+
+    const err = await Sandbox.create({ apiKey: API_KEY, domain: 'http://app.example.com/x', fetch }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(InvalidArgumentError);
+    expect(calls).toHaveLength(0);
   });
 });

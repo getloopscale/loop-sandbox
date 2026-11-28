@@ -156,6 +156,33 @@ function env(name: string): string | undefined {
   return value === undefined || value === '' ? undefined : value;
 }
 
+/** Hosts that are this machine, where a development API may answer without TLS. */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Works out where the API is, and refuses an address that would carry the API
+ *  key without TLS. Only an address of this machine may use plain HTTP. */
+function baseUrlFrom(opts: ConnectionOpts): string {
+  const apiUrl = opts.apiUrl ?? env('LOOPSCALE_API_URL');
+  if (apiUrl === undefined) {
+    const domain = opts.domain ?? env('LOOPSCALE_DOMAIN') ?? DEFAULT_DOMAIN;
+    if (!/^[a-z0-9.-]+(:\d+)?$/i.test(domain)) {
+      throw new ValidationError(`the domain is a host name with no scheme and no path, such as ${DEFAULT_DOMAIN} (got ${domain})`, 0, 'invalid_domain');
+    }
+    return `https://${domain}`;
+  }
+  let url: URL;
+  try {
+    url = new URL(apiUrl);
+  } catch {
+    throw new ValidationError(`the API URL is not a URL: use https://host (got ${apiUrl})`, 0, 'invalid_api_url');
+  }
+  const local = url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname);
+  if (url.protocol !== 'https:' && !local) {
+    throw new ValidationError(`the API URL must use https, so the API key is never sent in the clear (got ${apiUrl})`, 0, 'insecure_api_url');
+  }
+  return apiUrl;
+}
+
 function httpFrom(opts: ConnectionOpts): HttpClient {
   const apiKey = opts.apiKey ?? env('LOOPSCALE_API_KEY') ?? env('LOOPSANDBOX_API_KEY');
   if (!apiKey) {
@@ -165,7 +192,7 @@ function httpFrom(opts: ConnectionOpts): HttpClient {
       'missing_api_key',
     );
   }
-  const baseUrl = opts.apiUrl ?? env('LOOPSCALE_API_URL') ?? `https://${opts.domain ?? env('LOOPSCALE_DOMAIN') ?? DEFAULT_DOMAIN}`;
+  const baseUrl = baseUrlFrom(opts);
   return new HttpClient({
     baseUrl,
     apiKey,
@@ -232,14 +259,26 @@ function seconds(ms: number): number {
 /** Where the files of a sandbox live. It is also where a command starts. */
 const WORKSPACE = '/workspace';
 
+/** Where the files of an e2b sandbox live. A script written for e2b names it. */
+const E2B_HOME = '/home/user';
+
 /** Resolves a path the way a command in the sandbox would: a relative one
- *  starts at the workspace. A path outside the workspace is refused here, with
- *  the reason, because the API only reads and writes under it. */
+ *  starts at the workspace. The home of an e2b sandbox stands for the workspace,
+ *  so a script written for e2b keeps its paths. Any other path outside the
+ *  workspace is refused here, with the reason, because the API only reads and
+ *  writes under it. A path with ".." is refused too: the alias is a plain
+ *  replacement of the prefix and must not be a way out of the workspace. */
 function inWorkspace(path: string): string {
+  if (path.split('/').includes('..')) throw outsideWorkspace(path);
   if (!path.startsWith('/')) return joinPath(WORKSPACE, path.replace(/^\.\//, ''));
   if (path === WORKSPACE || path.startsWith(`${WORKSPACE}/`)) return path;
-  throw new ValidationError(
-    `the files of a sandbox live under ${WORKSPACE}: use a relative path or one that starts with ${WORKSPACE} (got ${path})`,
+  if (path === E2B_HOME || path.startsWith(`${E2B_HOME}/`)) return WORKSPACE + path.slice(E2B_HOME.length);
+  throw outsideWorkspace(path);
+}
+
+function outsideWorkspace(path: string): ValidationError {
+  return new ValidationError(
+    `the files of a sandbox live under ${WORKSPACE}: use a relative path or one that starts with ${WORKSPACE}, without ".." (got ${path})`,
     0,
     'path_outside_workspace',
   );

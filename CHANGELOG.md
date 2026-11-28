@@ -8,6 +8,8 @@ All notable changes to this project are recorded in this file. The format follow
 
 ### Added
 
+- A limit of live sandboxes for each tenant, set by `LOOPSANDBOX_MAX_LIVE_SANDBOXES_PER_TENANT` and 20 by default. It counts the pending, the running and the paused sandboxes, because a paused sandbox on the `container` driver keeps its memory on the host. Beyond it `POST /v1/sandboxes` answers 429 with the code `live_sandbox_limit` and a message with the count and the limit. `0` removes the limit. (#26)
+- TypeScript and Python SDKs: in `sandbox.files` and in the `cwd` of a command, `/home/user`, the home of an e2b sandbox, stands for `/workspace`. `files.write('/home/user/a.txt', ...)` was refused and now writes `/workspace/a.txt`. A command line that names `/home/user` still fails, because the directory does not exist inside the sandbox. (#26)
 - `POST /v1/sandboxes` takes a template by name in `template`: one the tenant registered, or a built-in one such as `python`. It took only the id of a registered template, so `Sandbox.create('python')` answered 404 (#25).
 - `GET /v1/sandboxes/{id}/metrics` on the `container` driver answers `disk_used_bytes` and `disk_limit_bytes`, the use and the size of the workspace. Both are absent for a paused sandbox. The TypeScript SDK has them as `diskUsed` and `diskTotal` in `getMetrics`, and the Python SDK as `disk_used` and `disk_total`. (#24)
 - TypeScript SDK: `Sandbox`, a class with the shape of the one in the e2b SDK. `Sandbox.create`, `connect`, `list`, `kill`, `getInfo`, `getMetrics`, `pause`, `setTimeout` and `updateNetwork`; `sandbox.commands.run` takes a command line and has `background`, `onStdout` and `onStderr`; `sandbox.files` has `read`, `write`, `list`, `exists`, `getInfo`, `makeDir`, `remove` and `rename`; `sandbox.pty` opens terminals. The key comes from `LOOPSCALE_API_KEY` and the address from `LOOPSCALE_DOMAIN` or `LOOPSCALE_API_URL`. The README lists what differs from e2b and what is absent. (#23)
@@ -102,6 +104,7 @@ All notable changes to this project are recorded in this file. The format follow
 
 ### Security
 
+- TypeScript and Python SDKs: `Sandbox` refuses an API URL that would carry the API key without TLS. `http://` is accepted only for `localhost`, `127.0.0.1` and `[::1]`, and a domain with a scheme or a path is refused. A script that pointed `LOOPSCALE_API_URL` at a plain HTTP address of another host now fails before any request. (#26)
 - The image is built with Go 1.26.11, and `golang.org/x/net`, `golang.org/x/crypto`, `golang.org/x/text`, `google.golang.org/grpc` and `github.com/klauspost/compress` are updated. The image scan had reported 23 high-severity advisories in the `api` binary, among them CVE-2026-111943 in `crypto/x509` and CVE-2026-84304 in gRPC.
 - On the `container` driver, a file route followed a symbolic link out of `/workspace`. Every file route now answers 400 for a path that resolves outside the workspace, as the `firecracker` driver already did.
 - A forked, resumed or warm-pool Firecracker sandbox gets a block device of its own for the volume slot, so no two sandboxes share a writable device.
